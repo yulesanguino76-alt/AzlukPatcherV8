@@ -16,35 +16,78 @@ data class AppInfo(
 
 enum class PatchStatus { UNKNOWN, LIKELY, PATCHABLE, COMPLEX }
 
-/**
- * V8 transformations are intentionally local and auditable.
- * They operate on an APK the user has selected/installed and do not implement
- * licensing, signature-integrity, credential, or security-control bypasses.
- */
+// ── V8 Patch Types — full offensive engine ────────────────────────────────────
+// Icons are Material Symbols names mapped in the UI
 enum class PatchType(
     val key: String,
     val displayName: String,
-    val description: String
+    val description: String,
+    val icon: String,          // Material icon name
+    val category: String
 ) {
-    REPACK_VERIFY(
-        "REPACK_VERIFY",
-        "Repack + Verify",
-        "Rebuild the APK deterministically and verify its ZIP structure."
+    // ── Core bypass patches (from LuckyPatcher + ApkEditorPro techniques) ──
+    LICENSE_BYPASS(
+        "LICENSE_BYPASS", "License Bypass",
+        "Nullifies Google Play LVL license checks. Patches ILicensingService callbacks to always return LICENSED.",
+        "verified_user", "bypass"
     ),
-    REMOVE_SIGNATURE_METADATA(
-        "REMOVE_SIGNATURE_METADATA",
-        "Clean Old Signature Metadata",
-        "Remove stale META-INF signature artifacts before a new local signature is applied."
+    IAP_BYPASS(
+        "IAP_BYPASS", "IAP Bypass",
+        "Spoofs in-app purchase validation. Patches billing response codes to always return RESULT_OK with PURCHASED state.",
+        "shopping_cart", "bypass"
     ),
+    SIGNATURE_BYPASS(
+        "SIGNATURE_BYPASS", "Signature Bypass",
+        "Hooks PackageInfo.getSignatures() to return the original certificate. Prevents signature-mismatch detection after repack.",
+        "fingerprint", "bypass"
+    ),
+    REMOVE_ADS(
+        "REMOVE_ADS", "Remove Ads",
+        "Kills AdMob, Facebook Audience, Unity Ads, AppLovin, IronSource, MoPub, Chartboost SDKs at the DEX level.",
+        "block", "ads"
+    ),
+    // ── Anti-detection patches (from NPManager + GameGuardian techniques) ──
+    SSL_BYPASS(
+        "SSL_BYPASS", "SSL Pinning Bypass",
+        "Patches OkHttp CertificatePinner, TrustManager.checkServerTrusted and X509TrustManager to accept all certs.",
+        "lock_open", "security"
+    ),
+    ROOT_BYPASS(
+        "ROOT_BYPASS", "Root Detection Bypass",
+        "Patches RootBeer, isRooted(), isDeviceRooted() to always return false. Removes su binary checks.",
+        "security", "security"
+    ),
+    SAFETYNET_BYPASS(
+        "SAFETYNET_BYPASS", "SafetyNet / Integrity Bypass",
+        "Patches SafetyNet attestation calls and Play Integrity API to return MEETS_DEVICE_INTEGRITY.",
+        "shield", "security"
+    ),
+    FRIDA_BYPASS(
+        "FRIDA_BYPASS", "Anti-Frida / Anti-Debug Bypass",
+        "Removes Frida, Xposed, Substrate detection. Patches debugger checks and ptrace anti-debug tricks.",
+        "bug_report", "security"
+    ),
+    // ── DEX transform patches ──────────────────────────────────────────────
+    FORCE_DEBUGGABLE(
+        "FORCE_DEBUGGABLE", "Force Debuggable",
+        "Sets android:debuggable=true in the binary manifest. Enables ADB attach and Frida injection.",
+        "adb", "dev"
+    ),
+    DISABLE_FLAG_SECURE(
+        "DISABLE_FLAG_SECURE", "Disable FLAG_SECURE",
+        "Patches Window.addFlags(FLAG_SECURE) calls to no-ops. Allows screenshots and screen recording.",
+        "screenshot_monitor", "dev"
+    ),
+    EXPORT_ALL_COMPONENTS(
+        "EXPORT_ALL_COMPONENTS", "Export All Components",
+        "Patches android:exported=false to true in the binary manifest. Allows external activity/service invocation.",
+        "open_in_new", "dev"
+    ),
+    // ── Optimization ──────────────────────────────────────────────────────
     OPTIMIZE_ZIP(
-        "OPTIMIZE_ZIP",
-        "Optimize APK ZIP",
-        "Recompress ordinary ZIP entries while preserving stored resources and native libraries."
-    ),
-    DATA_TEXT_PATCH(
-        "DATA_TEXT_PATCH",
-        "Data Text Patch",
-        "Apply explicitly defined text replacements from an Azluk patch manifest."
+        "OPTIMIZE_ZIP", "Optimize APK",
+        "Recompresses entries, aligns resources.arsc at 4-byte boundaries. Reduces APK size.",
+        "compress", "util"
     )
 }
 
