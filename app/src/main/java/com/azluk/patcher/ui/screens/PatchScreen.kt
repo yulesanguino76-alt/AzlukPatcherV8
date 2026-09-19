@@ -1,4 +1,3 @@
-```kotlin
 package com.azluk.patcher.ui.screens
 
 import android.app.PendingIntent
