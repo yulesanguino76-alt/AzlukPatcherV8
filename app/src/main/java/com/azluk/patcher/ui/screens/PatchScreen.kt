@@ -16,7 +16,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -31,7 +30,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,7 +38,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.InstallMobile
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 
@@ -49,35 +46,32 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 
-import androidx.compose.material3.Scaffold
-
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 import androidx.navigation.NavController
@@ -100,18 +94,18 @@ import java.io.File
 import java.io.FileInputStream
 
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PatchScreen(
     pkg: String,
     navController: NavController,
     vm: PatchViewModel = viewModel()
 ) {
-    val state by vm.state.collectAsStateWithLifecycle()
+    val state by vm.state.collectAsState()
 
     val ctx = LocalContext.current
 
     val logState = rememberLazyListState()
-
 
     // -------------------------------------------------------------------------
     // Initial scan
@@ -126,37 +120,22 @@ fun PatchScreen(
         }
     }
 
-
     // -------------------------------------------------------------------------
     // Patch log
     // -------------------------------------------------------------------------
 
     val logLines = when (val ps = state.patchState) {
-
-        is PatchState.Running ->
-            ps.log
-
-        is PatchState.Success ->
-            ps.log
-
-        is PatchState.Failure ->
-            ps.log
-
-        else ->
-            emptyList()
+        is PatchState.Running -> ps.log
+        is PatchState.Success -> ps.log
+        is PatchState.Failure -> ps.log
+        else -> emptyList()
     }
-
 
     LaunchedEffect(logLines.size) {
-
         if (logLines.isNotEmpty()) {
-
-            logState.animateScrollToItem(
-                logLines.size - 1
-            )
+            logState.animateScrollToItem(logLines.size - 1)
         }
     }
-
 
     // -------------------------------------------------------------------------
     // PackageInstaller broadcast receiver
@@ -164,79 +143,68 @@ fun PatchScreen(
 
     DisposableEffect(Unit) {
 
-        val filter =
-            IntentFilter(
-                "com.azluk.patcher.INSTALL_RESULT"
-            )
+        val filter = IntentFilter(
+            "com.azluk.patcher.INSTALL_RESULT"
+        )
 
+        val receiver = object : BroadcastReceiver() {
 
-        val receiver =
-            object : BroadcastReceiver() {
+            override fun onReceive(
+                c: Context,
+                i: Intent
+            ) {
 
-                override fun onReceive(
-                    c: Context,
-                    i: Intent
+                val status = i.getIntExtra(
+                    PackageInstaller.EXTRA_STATUS,
+                    -999
+                )
+
+                val message = i.getStringExtra(
+                    PackageInstaller.EXTRA_STATUS_MESSAGE
+                )
+
+                if (
+                    status ==
+                    PackageInstaller.STATUS_PENDING_USER_ACTION
                 ) {
 
-                    val status =
-                        i.getIntExtra(
-                            PackageInstaller.EXTRA_STATUS,
-                            -999
-                        )
+                    val confirmIntent: Intent? =
+                        if (
+                            Build.VERSION.SDK_INT >=
+                            Build.VERSION_CODES.TIRAMISU
+                        ) {
 
+                            i.getParcelableExtra(
+                                Intent.EXTRA_INTENT,
+                                Intent::class.java
+                            )
 
-                    val message =
-                        i.getStringExtra(
-                            PackageInstaller.EXTRA_STATUS_MESSAGE
-                        )
+                        } else {
 
+                            @Suppress("DEPRECATION")
 
-                    if (
-                        status ==
-                        PackageInstaller.STATUS_PENDING_USER_ACTION
-                    ) {
-
-                        val confirmIntent: Intent? =
-
-                            if (
-                                Build.VERSION.SDK_INT >=
-                                Build.VERSION_CODES.TIRAMISU
-                            ) {
-
-                                i.getParcelableExtra(
-                                    Intent.EXTRA_INTENT,
-                                    Intent::class.java
-                                )
-
-                            } else {
-
-                                @Suppress("DEPRECATION")
-
-                                i.getParcelableExtra<Intent>(
-                                    Intent.EXTRA_INTENT
-                                )
-                            }
-
-
-                        confirmIntent?.addFlags(
-                            Intent.FLAG_ACTIVITY_NEW_TASK
-                        )
-
-
-                        confirmIntent?.let {
-                            ctx.startActivity(it)
+                            i.getParcelableExtra<Intent>(
+                                Intent.EXTRA_INTENT
+                            )
                         }
 
-                    } else {
+                    confirmIntent?.addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK
+                    )
 
-                        vm.onInstallResult(
-                            status,
-                            message
-                        )
+                    confirmIntent?.let {
+                        ctx.startActivity(it)
                     }
+
+                } else {
+
+                    vm.onInstallResult(
+                        status,
+                        message
+                    )
                 }
             }
-
+        }
 
         if (
             Build.VERSION.SDK_INT >=
@@ -259,15 +227,12 @@ fun PatchScreen(
             )
         }
 
-
         onDispose {
-
             runCatching {
                 ctx.unregisterReceiver(receiver)
             }
         }
     }
-
 
     // -------------------------------------------------------------------------
     // UI state
@@ -276,11 +241,9 @@ fun PatchScreen(
     val isRunning =
         state.patchState is PatchState.Running
 
-
     val isDone =
         state.patchState is PatchState.Success ||
         state.patchState is PatchState.Failure
-
 
     // -------------------------------------------------------------------------
     // Screen
@@ -289,7 +252,6 @@ fun PatchScreen(
     Scaffold(
 
         containerColor = AzlukBg,
-
 
         topBar = {
 
@@ -305,7 +267,6 @@ fun PatchScreen(
                             fontWeight = FontWeight.SemiBold
                         )
 
-
                         Text(
                             text = pkg,
                             color = AzlukOnSurface,
@@ -315,7 +276,6 @@ fun PatchScreen(
                         )
                     }
                 },
-
 
                 navigationIcon = {
 
@@ -336,14 +296,12 @@ fun PatchScreen(
                     }
                 },
 
-
                 colors =
                     TopAppBarDefaults.topAppBarColors(
                         containerColor = AzlukSurface
                     )
             )
         },
-
 
         bottomBar = {
 
@@ -368,10 +326,6 @@ fun PatchScreen(
                         horizontalArrangement =
                             Arrangement.spacedBy(8.dp)
                     ) {
-
-                        // -----------------------------------------------------
-                        // Rescan
-                        // -----------------------------------------------------
 
                         OutlinedButton(
 
@@ -423,11 +377,9 @@ fun PatchScreen(
                                 )
                             }
 
-
                             Spacer(
                                 Modifier.width(6.dp)
                             )
-
 
                             Text(
                                 text = "Rescan",
@@ -437,11 +389,6 @@ fun PatchScreen(
                                     FontWeight.SemiBold
                             )
                         }
-
-
-                        // -----------------------------------------------------
-                        // Start patch
-                        // -----------------------------------------------------
 
                         Button(
 
@@ -475,11 +422,9 @@ fun PatchScreen(
                                     Modifier.size(16.dp)
                             )
 
-
                             Spacer(
                                 Modifier.width(8.dp)
                             )
-
 
                             Text(
                                 text = "Start Patch",
@@ -493,7 +438,6 @@ fun PatchScreen(
         }
 
     ) { padding ->
-
 
         LazyColumn(
 
@@ -511,7 +455,6 @@ fun PatchScreen(
                 Arrangement.spacedBy(12.dp)
         ) {
 
-
             // =================================================================
             // Scanning
             // =================================================================
@@ -519,8 +462,7 @@ fun PatchScreen(
             item {
 
                 AnimatedVisibility(
-                    visible =
-                        state.isScanning
+                    visible = state.isScanning
                 ) {
 
                     Surface(
@@ -555,7 +497,6 @@ fun PatchScreen(
                                 strokeWidth = 2.dp
                             )
 
-
                             Text(
 
                                 text =
@@ -571,14 +512,11 @@ fun PatchScreen(
                 }
             }
 
-
             // =================================================================
             // Scan results
             // =================================================================
 
-            if (
-                state.scanResults.isNotEmpty()
-            ) {
+            if (state.scanResults.isNotEmpty()) {
 
                 item {
 
@@ -595,7 +533,6 @@ fun PatchScreen(
                                 }.getOrNull()
                             }
                             .toSet()
-
 
                     Surface(
 
@@ -630,11 +567,9 @@ fun PatchScreen(
                                 fontSize = 13.sp
                             )
 
-
                             Spacer(
                                 Modifier.height(4.dp)
                             )
-
 
                             Text(
 
@@ -653,112 +588,64 @@ fun PatchScreen(
                 }
             }
 
-
             // =================================================================
-            // Patch options title
+            // Patch options
             // =================================================================
 
             item {
 
                 Text(
-
-                    text =
-                        "Patch Options",
-
-                    color =
-                        AzlukOnBg,
-
-                    fontWeight =
-                        FontWeight.SemiBold,
-
+                    text = "Patch Options",
+                    color = AzlukOnBg,
+                    fontWeight = FontWeight.SemiBold,
                     fontSize = 14.sp
                 )
             }
 
-
-            // =================================================================
-            // Detected patch types
-            // =================================================================
-
-            val detectedTypes =
-                state.scanResults
-                    .mapNotNull {
-
-                        runCatching {
-
-                            PatchType.valueOf(
-                                it.patchType
-                            )
-
-                        }.getOrNull()
-                    }
-                    .toSet()
-
-
             items(
-                PatchType.values().toList()
+                items = PatchType.entries.toList()
             ) { type ->
 
-
                 val selected =
-                    type in state.selectedPatches
-
-
-                val wasDetected =
-                    type in detectedTypes
-
-
-                val enabled =
-                    !isRunning &&
-                    !isDone
-
+                    state.selectedPatches.contains(type)
 
                 Surface(
 
+                    modifier =
+                        Modifier.fillMaxWidth(),
+
                     color =
-                        if (
-                            selected &&
-                            wasDetected
-                        ) {
-                            AzlukBlue.copy(.10f)
-                        } else {
-                            AzlukSurface
-                        },
+                        if (selected)
+                            AzlukBlue.copy(.08f)
+                        else
+                            AzlukSurface,
 
                     shape =
                         RoundedCornerShape(14.dp),
 
                     border =
                         BorderStroke(
-
                             1.dp,
-
-                            if (selected) {
-                                AzlukBlue.copy(.4f)
-                            } else {
+                            if (selected)
+                                AzlukBlue.copy(.35f)
+                            else
                                 AzlukSurfaceVar
-                            }
-                        ),
-
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable(enabled) {
-
-                                vm.togglePatch(type)
-                            }
+                        )
                 ) {
-
 
                     Row(
 
                         modifier =
-                            Modifier.padding(12.dp),
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    vm.togglePatch(type)
+                                }
+                                .padding(14.dp),
 
                         verticalAlignment =
                             Alignment.CenterVertically
                     ) {
-
 
                         Checkbox(
 
@@ -766,123 +653,61 @@ fun PatchScreen(
                                 selected,
 
                             onCheckedChange = {
-
-                                if (enabled) {
-
-                                    vm.togglePatch(
-                                        type
-                                    )
-                                }
+                                vm.togglePatch(type)
                             },
 
                             colors =
                                 CheckboxDefaults.colors(
-
                                     checkedColor =
-                                        AzlukBlue,
-
-                                    uncheckedColor =
-                                        AzlukOnSurface
+                                        AzlukBlue
                                 )
                         )
-
 
                         Spacer(
                             Modifier.width(8.dp)
                         )
 
-
                         Column(
-                            Modifier.weight(1f)
+                            modifier =
+                                Modifier.weight(1f)
                         ) {
 
+                            Text(
+                                text =
+                                    type.displayName,
 
-                            Row(
+                                color =
+                                    AzlukOnBg,
 
-                                verticalAlignment =
-                                    Alignment.CenterVertically,
+                                fontWeight =
+                                    FontWeight.SemiBold,
 
-                                horizontalArrangement =
-                                    Arrangement.spacedBy(6.dp)
-                            ) {
+                                fontSize = 13.sp
+                            )
 
-
-                                Text(
-
-                                    text =
-                                        type.displayName,
-
-                                    color =
-                                        AzlukOnBg,
-
-                                    fontSize = 13.sp,
-
-                                    fontWeight =
-                                        FontWeight.SemiBold
-                                )
-
-
-                                if (wasDetected) {
-
-                                    Surface(
-
-                                        color =
-                                            AzlukSuccess.copy(.12f),
-
-                                        shape =
-                                            RoundedCornerShape(4.dp)
-                                    ) {
-
-                                        Text(
-
-                                            text =
-                                                "DETECTED",
-
-                                            color =
-                                                AzlukSuccess,
-
-                                            fontSize = 9.sp,
-
-                                            fontWeight =
-                                                FontWeight.Bold,
-
-                                            modifier =
-                                                Modifier.padding(
-                                                    horizontal = 5.dp,
-                                                    vertical = 2.dp
-                                                )
-                                        )
-                                    }
-                                }
-                            }
-
+                            Spacer(
+                                Modifier.height(3.dp)
+                            )
 
                             Text(
-
                                 text =
                                     type.description,
 
                                 color =
                                     AzlukOnSurface,
 
-                                fontSize = 11.sp,
-
-                                maxLines = 2,
-
-                                overflow =
-                                    TextOverflow.Ellipsis
+                                fontSize = 11.sp
                             )
                         }
                     }
                 }
             }
 
-
             // =================================================================
-            // Patching
+            // Running patch
             // =================================================================
 
-            if (isRunning) {
+            if (state.patchState is PatchState.Running) {
 
                 item {
 
@@ -892,7 +717,13 @@ fun PatchScreen(
                             AzlukSurface,
 
                         shape =
-                            RoundedCornerShape(14.dp)
+                            RoundedCornerShape(14.dp),
+
+                        border =
+                            BorderStroke(
+                                1.dp,
+                                AzlukBlue.copy(.25f)
+                            )
                     ) {
 
                         Column(
@@ -900,12 +731,8 @@ fun PatchScreen(
                         ) {
 
                             Row(
-
                                 verticalAlignment =
-                                    Alignment.CenterVertically,
-
-                                horizontalArrangement =
-                                    Arrangement.spacedBy(10.dp)
+                                    Alignment.CenterVertically
                             ) {
 
                                 CircularProgressIndicator(
@@ -919,9 +746,11 @@ fun PatchScreen(
                                     strokeWidth = 2.dp
                                 )
 
+                                Spacer(
+                                    Modifier.width(10.dp)
+                                )
 
                                 Text(
-
                                     text =
                                         "Patching…",
 
@@ -929,63 +758,46 @@ fun PatchScreen(
                                         AzlukBlue,
 
                                     fontWeight =
-                                        FontWeight.SemiBold
+                                        FontWeight.Bold,
+
+                                    fontSize = 13.sp
                                 )
                             }
 
-
                             Spacer(
-                                Modifier.height(10.dp)
+                                Modifier.height(12.dp)
                             )
 
+                            logLines.forEach { line ->
 
-                            logLines
-                                .takeLast(15)
-                                .forEach { line ->
+                                Text(
 
-                                    Text(
+                                    text = line,
 
-                                        text =
-                                            line,
+                                    color =
+                                        AzlukOnSurface,
 
-                                        color =
-                                            when {
+                                    fontSize = 11.sp,
 
-                                                line.startsWith("✗") ->
-                                                    AzlukError
+                                    fontFamily =
+                                        androidx.compose.ui.text.font.FontFamily.Monospace,
 
-                                                line.startsWith("✓") ->
-                                                    AzlukSuccess
-
-                                                else ->
-                                                    AzlukOnSurface
-                                            },
-
-                                        fontSize = 11.sp,
-
-                                        fontFamily =
-                                            FontFamily.Monospace
-                                    )
-                                }
+                                    modifier =
+                                        Modifier.padding(
+                                            vertical = 2.dp
+                                        )
+                                )
+                            }
                         }
                     }
                 }
             }
 
-
             // =================================================================
             // Successful patch
             // =================================================================
 
-            if (
-                state.patchState is
-                PatchState.Success
-            ) {
-
-                val success =
-                    state.patchState
-                        as PatchState.Success
-
+            if (state.patchState is PatchState.Success) {
 
                 item {
 
@@ -995,7 +807,7 @@ fun PatchScreen(
                             AzlukSuccess.copy(.07f),
 
                         shape =
-                            RoundedCornerShape(16.dp),
+                            RoundedCornerShape(14.dp),
 
                         border =
                             BorderStroke(
@@ -1005,256 +817,61 @@ fun PatchScreen(
                     ) {
 
                         Column(
-
-                            modifier =
-                                Modifier.padding(16.dp),
-
-                            verticalArrangement =
-                                Arrangement.spacedBy(8.dp)
+                            Modifier.padding(14.dp)
                         ) {
 
                             Text(
-
                                 text =
-                                    "✓ Patch completed",
+                                    "Patch completed successfully",
 
                                 color =
                                     AzlukSuccess,
 
                                 fontWeight =
-                                    FontWeight.Bold
+                                    FontWeight.Bold,
+
+                                fontSize = 14.sp
                             )
 
-
-                            Text(
-
-                                text =
-                                    success.outputPath,
-
-                                color =
-                                    AzlukOnSurface,
-
-                                fontSize = 11.sp,
-
-                                fontFamily =
-                                    FontFamily.Monospace
+                            Spacer(
+                                Modifier.height(8.dp)
                             )
 
-
-                            var showLog by remember {
-                                mutableStateOf(false)
-                            }
-
-
-                            TextButton(
-
-                                onClick = {
-                                    showLog = !showLog
-                                }
-                            ) {
+                            logLines.forEach { line ->
 
                                 Text(
 
-                                    text =
-                                        if (showLog)
-                                            "Hide log"
-                                        else
-                                            "Show full log",
+                                    text = line,
 
                                     color =
-                                        AzlukBlue,
+                                        AzlukOnSurface,
 
-                                    fontSize = 12.sp
+                                    fontSize = 11.sp,
+
+                                    fontFamily =
+                                        androidx.compose.ui.text.font.FontFamily.Monospace
                                 )
                             }
 
-
-                            AnimatedVisibility(
-                                visible = showLog
-                            ) {
-
-                                Column {
-
-                                    logLines.forEach { line ->
-
-                                        Text(
-
-                                            text =
-                                                line,
-
-                                            color =
-                                                AzlukOnSurface,
-
-                                            fontSize = 10.sp,
-
-                                            fontFamily =
-                                                FontFamily.Monospace
-                                        )
-                                    }
-                                }
-                            }
-
-
-                            Row(
-
-                                horizontalArrangement =
-                                    Arrangement.spacedBy(8.dp)
-                            ) {
-
-                                Button(
-
-                                    onClick = {
-
-                                        installApk(
-                                            ctx,
-                                            success.outputPath
-                                        )
-                                    },
-
-                                    modifier =
-                                        Modifier.weight(1f),
-
-                                    colors =
-                                        ButtonDefaults.buttonColors(
-                                            containerColor =
-                                                AzlukBlue
-                                        ),
-
-                                    shape =
-                                        RoundedCornerShape(12.dp)
-                                ) {
-
-                                    Icon(
-
-                                        imageVector =
-                                            Icons.Default.InstallMobile,
-
-                                        contentDescription =
-                                            null,
-
-                                        modifier =
-                                            Modifier.size(16.dp)
-                                    )
-
-
-                                    Spacer(
-                                        Modifier.width(6.dp)
-                                    )
-
-
-                                    Text(
-                                        text = "Install",
-                                        fontWeight =
-                                            FontWeight.Bold
-                                    )
-                                }
-
-
-                                OutlinedButton(
-
-                                    onClick = {
-                                        vm.resetPatch()
-                                    },
-
-                                    modifier =
-                                        Modifier.weight(1f),
-
-                                    shape =
-                                        RoundedCornerShape(12.dp),
-
-                                    border =
-                                        BorderStroke(
-                                            1.dp,
-                                            AzlukSurfaceVar
-                                        )
-                                ) {
-
-                                    Text(
-
-                                        text =
-                                            "Patch Again",
-
-                                        color =
-                                            AzlukOnSurface
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-
-            // =================================================================
-            // Patch failure
-            // =================================================================
-
-            if (
-                state.patchState is
-                PatchState.Failure
-            ) {
-
-                val err =
-                    state.patchState
-                        as PatchState.Failure
-
-
-                item {
-
-                    Surface(
-
-                        color =
-                            AzlukError.copy(.07f),
-
-                        shape =
-                            RoundedCornerShape(16.dp),
-
-                        border =
-                            BorderStroke(
-                                1.dp,
-                                AzlukError.copy(.25f)
+                            Spacer(
+                                Modifier.height(10.dp)
                             )
-                    ) {
-
-                        Column(
-
-                            modifier =
-                                Modifier.padding(16.dp),
-
-                            verticalArrangement =
-                                Arrangement.spacedBy(8.dp)
-                        ) {
-
-                            Text(
-
-                                text =
-                                    "❌ Patch failed",
-
-                                color =
-                                    AzlukError,
-
-                                fontWeight =
-                                    FontWeight.Bold
-                            )
-
-
-                            Text(
-
-                                text =
-                                    err.error,
-
-                                color =
-                                    AzlukOnBg,
-
-                                fontSize = 12.sp
-                            )
-
 
                             Button(
 
                                 onClick = {
-                                    vm.resetPatch()
+
+                                    installApk(
+                                        ctx,
+                                        state.lastOutputPath
+                                    )
                                 },
+
+                                enabled =
+                                    state.lastOutputPath.isNotEmpty(),
+
+                                modifier =
+                                    Modifier.fillMaxWidth(),
 
                                 colors =
                                     ButtonDefaults.buttonColors(
@@ -1263,11 +880,12 @@ fun PatchScreen(
                                     ),
 
                                 shape =
-                                    RoundedCornerShape(12.dp)
+                                    RoundedCornerShape(10.dp)
                             ) {
 
                                 Text(
-                                    text = "Try Again"
+                                    text =
+                                        "Install APK"
                                 )
                             }
                         }
@@ -1275,20 +893,135 @@ fun PatchScreen(
                 }
             }
 
+            // =================================================================
+            // Patch failure
+            // =================================================================
+
+            if (state.patchState is PatchState.Failure) {
+
+                item {
+
+                    val failure =
+                        state.patchState as PatchState.Failure
+
+                    Column(
+                        verticalArrangement =
+                            Arrangement.spacedBy(10.dp)
+                    ) {
+
+                        Surface(
+
+                            color =
+                                AzlukError.copy(.07f),
+
+                            shape =
+                                RoundedCornerShape(14.dp),
+
+                            border =
+                                BorderStroke(
+                                    1.dp,
+                                    AzlukError.copy(.25f)
+                                )
+                        ) {
+
+                            Column(
+
+                                modifier =
+                                    Modifier.padding(14.dp),
+
+                                verticalArrangement =
+                                    Arrangement.spacedBy(6.dp)
+                            ) {
+
+                                Text(
+                                    text =
+                                        "Patch failed",
+
+                                    color =
+                                        AzlukError,
+
+                                    fontWeight =
+                                        FontWeight.Bold,
+
+                                    fontSize = 13.sp
+                                )
+
+                                Text(
+                                    text =
+                                        failure.message,
+
+                                    color =
+                                        AzlukOnBg,
+
+                                    fontSize = 12.sp
+                                )
+
+                                failure.log.forEach { line ->
+
+                                    Text(
+                                        text = line,
+                                        color =
+                                            AzlukOnSurface,
+                                        fontSize = 11.sp,
+                                        fontFamily =
+                                            androidx.compose.ui.text.font.FontFamily.Monospace
+                                    )
+                                }
+
+                                Spacer(
+                                    Modifier.height(4.dp)
+                                )
+
+                                Button(
+
+                                    onClick = {
+                                        vm.patch(pkg)
+                                    },
+
+                                    colors =
+                                        ButtonDefaults.buttonColors(
+                                            containerColor =
+                                                AzlukBlue
+                                        ),
+
+                                    shape =
+                                        RoundedCornerShape(10.dp),
+
+                                    modifier =
+                                        Modifier.fillMaxWidth()
+                                ) {
+
+                                    Icon(
+                                        imageVector =
+                                            Icons.Default.Refresh,
+
+                                        contentDescription =
+                                            null,
+
+                                        modifier =
+                                            Modifier.size(16.dp)
+                                    )
+
+                                    Spacer(
+                                        Modifier.width(6.dp)
+                                    )
+
+                                    Text(
+                                        text =
+                                            "Try Again"
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             // =================================================================
             // Installation result
             // =================================================================
 
-            when (
-                val ist =
-                    state.installState
-            ) {
-
-
-                // -----------------------------------------------------------------
-                // INSTALLING
-                // -----------------------------------------------------------------
+            when (val ist = state.installState) {
 
                 InstallState.Installing -> {
 
@@ -1332,7 +1065,6 @@ fun PatchScreen(
                                     strokeWidth = 2.dp
                                 )
 
-
                                 Text(
 
                                     text =
@@ -1350,11 +1082,6 @@ fun PatchScreen(
                         }
                     }
                 }
-
-
-                // -----------------------------------------------------------------
-                // INSTALL SUCCESS
-                // -----------------------------------------------------------------
 
                 is InstallState.Success -> {
 
@@ -1393,11 +1120,6 @@ fun PatchScreen(
                     }
                 }
 
-
-                // -----------------------------------------------------------------
-                // INSTALL FAILURE
-                // -----------------------------------------------------------------
-
                 is InstallState.Failure -> {
 
                     item {
@@ -1407,7 +1129,6 @@ fun PatchScreen(
                             verticalArrangement =
                                 Arrangement.spacedBy(10.dp)
                         ) {
-
 
                             Surface(
 
@@ -1433,7 +1154,6 @@ fun PatchScreen(
                                         Arrangement.spacedBy(6.dp)
                                 ) {
 
-
                                     Text(
 
                                         text =
@@ -1448,7 +1168,6 @@ fun PatchScreen(
                                         fontSize = 13.sp
                                     )
 
-
                                     Text(
 
                                         text =
@@ -1459,7 +1178,6 @@ fun PatchScreen(
 
                                         fontSize = 12.sp
                                     )
-
 
                                     Text(
 
@@ -1472,22 +1190,18 @@ fun PatchScreen(
                                         fontSize = 11.sp
                                     )
 
-
                                     if (ist.canRetry) {
 
                                         Spacer(
                                             Modifier.height(4.dp)
                                         )
 
-
                                         Button(
 
                                             onClick = {
 
                                                 installApk(
-
                                                     ctx,
-
                                                     state.lastOutputPath
                                                 )
                                             },
@@ -1517,11 +1231,9 @@ fun PatchScreen(
                                                     Modifier.size(16.dp)
                                             )
 
-
                                             Spacer(
                                                 Modifier.width(6.dp)
                                             )
-
 
                                             Text(
                                                 text =
@@ -1531,11 +1243,6 @@ fun PatchScreen(
                                     }
                                 }
                             }
-
-
-                            // -----------------------------------------------------
-                            // AI diagnosis
-                            // -----------------------------------------------------
 
                             AiDiagnosisCard(
 
@@ -1549,9 +1256,7 @@ fun PatchScreen(
                                 onRetry = {
 
                                     vm.diagnoseWithAi(
-
                                         ist,
-
                                         state.lastOutputPath
                                     )
                                 }
@@ -1559,11 +1264,6 @@ fun PatchScreen(
                         }
                     }
                 }
-
-
-                // -----------------------------------------------------------------
-                // IDLE
-                // -----------------------------------------------------------------
 
                 InstallState.Idle -> Unit
             }
@@ -1603,7 +1303,6 @@ private fun AiDiagnosisCard(
             shrinkVertically()
     ) {
 
-
         Surface(
 
             color =
@@ -1619,7 +1318,6 @@ private fun AiDiagnosisCard(
                 )
         ) {
 
-
             Column(
 
                 modifier =
@@ -1629,11 +1327,6 @@ private fun AiDiagnosisCard(
                     Arrangement.spacedBy(10.dp)
             ) {
 
-
-                // -----------------------------------------------------------------
-                // Header
-                // -----------------------------------------------------------------
-
                 Row(
 
                     verticalAlignment =
@@ -1642,7 +1335,6 @@ private fun AiDiagnosisCard(
                     horizontalArrangement =
                         Arrangement.spacedBy(8.dp)
                 ) {
-
 
                     Surface(
 
@@ -1674,7 +1366,6 @@ private fun AiDiagnosisCard(
                         )
                     }
 
-
                     Text(
 
                         text =
@@ -1691,7 +1382,6 @@ private fun AiDiagnosisCard(
                         modifier =
                             Modifier.weight(1f)
                     )
-
 
                     if (!diagnosis.loading) {
 
@@ -1722,11 +1412,6 @@ private fun AiDiagnosisCard(
                     }
                 }
 
-
-                // -----------------------------------------------------------------
-                // Diagnosis body
-                // -----------------------------------------------------------------
-
                 when {
 
                     diagnosis.loading -> {
@@ -1751,7 +1436,6 @@ private fun AiDiagnosisCard(
                                 strokeWidth = 2.dp
                             )
 
-
                             Text(
 
                                 text =
@@ -1764,7 +1448,6 @@ private fun AiDiagnosisCard(
                             )
                         }
                     }
-
 
                     diagnosis.suggestion.isNotEmpty() -> {
 
@@ -1783,7 +1466,6 @@ private fun AiDiagnosisCard(
                         )
                     }
 
-
                     diagnosis.error.isNotEmpty() -> {
 
                         Text(
@@ -1797,9 +1479,7 @@ private fun AiDiagnosisCard(
                             fontSize = 12.sp
                         )
 
-
                         TextButton(
-
                             onClick =
                                 onRetry
                         ) {
@@ -1835,7 +1515,6 @@ private fun installApk(
 
 ) {
 
-
     if (path.isEmpty()) {
 
         Toast.makeText(
@@ -1851,10 +1530,7 @@ private fun installApk(
         return
     }
 
-
-    val file =
-        File(path)
-
+    val file = File(path)
 
     if (!file.exists()) {
 
@@ -1871,12 +1547,10 @@ private fun installApk(
         return
     }
 
-
     try {
 
         val packageInstaller =
             ctx.packageManager.packageInstaller
-
 
         val params =
             PackageInstaller.SessionParams(
@@ -1885,18 +1559,15 @@ private fun installApk(
                     .MODE_FULL_INSTALL
             )
 
-
         val sessionId =
             packageInstaller.createSession(
                 params
             )
 
-
         val session =
             packageInstaller.openSession(
                 sessionId
             )
-
 
         FileInputStream(file).use { fis ->
 
@@ -1915,17 +1586,11 @@ private fun installApk(
                     65536
                 )
 
-
                 session.fsync(
                     output
                 )
             }
         }
-
-
-        // ---------------------------------------------------------------------
-        // Broadcast returned by PackageInstaller
-        // ---------------------------------------------------------------------
 
         val receiverIntent =
             Intent(
@@ -1937,9 +1602,7 @@ private fun installApk(
                 )
             }
 
-
         val flags =
-
             if (
                 Build.VERSION.SDK_INT >=
                 Build.VERSION_CODES.S
@@ -1953,7 +1616,6 @@ private fun installApk(
                 PendingIntent.FLAG_UPDATE_CURRENT
             }
 
-
         val pendingIntent =
             PendingIntent.getBroadcast(
 
@@ -1966,11 +1628,9 @@ private fun installApk(
                 flags
             )
 
-
         session.commit(
             pendingIntent.intentSender
         )
-
 
         session.close()
 
