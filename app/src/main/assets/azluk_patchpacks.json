@@ -1,63 +1,46 @@
 {
-  "format": 1,
-  "name": "Azluk Patch Packs",
-  "version": "8.0",
   "packs": [
     {
-      "id": "apk_inspector",
-      "name": "Azluk APK Inspector",
-      "icon": "analytics",
-      "category": "Analysis",
-      "description": "APK/DEX structure, package metadata, permissions and component inspection."
+      "id": "lucky_core",
+      "name": "Lucky Core Pack",
+      "icon": "verified_user",
+      "category": "bypass",
+      "description": "License bypass + IAP bypass + Signature spoof. The classic LuckyPatcher combo."
     },
     {
-      "id": "data_editor",
-      "name": "Azluk Data Editor",
-      "icon": "database",
-      "category": "Data",
-      "description": "Controlled editing of user-supplied textual assets and patch manifests."
+      "id": "np_ssl",
+      "name": "NPManager SSL Pack",
+      "icon": "lock_open",
+      "category": "security",
+      "description": "SSL unpinning suite — OkHttp, TrustManager, X509. Full network interception unlock."
     },
     {
-      "id": "resource_lab",
-      "name": "Azluk Resource Lab",
-      "icon": "palette",
-      "category": "Resources",
-      "description": "Resource-oriented inspection and safe repackaging workflows."
+      "id": "gg_stealth",
+      "name": "GameGuardian Stealth",
+      "icon": "shield",
+      "category": "security",
+      "description": "Root + SafetyNet + Frida bypass combo. Makes your device look clean to any detection."
     },
     {
-      "id": "smali_lab",
-      "name": "Azluk Bytecode Lab",
+      "id": "ads_nuke",
+      "name": "Ads Nuke",
+      "icon": "block",
+      "category": "ads",
+      "description": "Kills AdMob, Facebook Audience, Unity, AppLovin, IronSource, MoPub, Chartboost in one shot."
+    },
+    {
+      "id": "dev_tools",
+      "name": "Developer Unlock",
       "icon": "code",
-      "category": "Bytecode",
-      "description": "DEX/string inspection with deterministic transformation hooks."
+      "category": "dev",
+      "description": "Force debuggable + Disable FLAG_SECURE + Export all components. Full dev access."
     },
     {
-      "id": "repack_engine",
-      "name": "Azluk Repack Engine",
-      "icon": "archive",
-      "category": "Build",
-      "description": "Deterministic ZIP/APK rebuilding and output verification."
-    },
-    {
-      "id": "signing_lab",
-      "name": "Azluk Signing Lab",
-      "icon": "verified",
-      "category": "Build",
-      "description": "Local signing and verification for APKs you are authorized to modify."
-    },
-    {
-      "id": "memory_lab",
-      "name": "Azluk Memory Lab",
-      "icon": "memory",
-      "category": "Runtime",
-      "description": "Architecture for future local debugging/inspection integrations."
-    },
-    {
-      "id": "patch_manifest",
-      "name": "Azluk Patch Manifest",
-      "icon": "tune",
-      "category": "Automation",
-      "description": "Versioned, auditable patch-pack metadata with hashes and provenance."
+      "id": "full_patch",
+      "name": "Full AzlukPatch",
+      "icon": "auto_fix_high",
+      "category": "all",
+      "description": "Everything enabled. License + IAP + Ads + SSL + Root + SafetyNet + Frida bypass."
     }
   ]
 }
