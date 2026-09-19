@@ -93,8 +93,8 @@ class PatchViewModel(
                     detected
                 } else {
                     setOf(
-                        PatchType.REPACK_VERIFY,
-                        PatchType.REMOVE_SIGNATURE_METADATA
+                        PatchType.LICENSE_BYPASS,
+                        PatchType.REMOVE_ADS
                     )
                 }
 
