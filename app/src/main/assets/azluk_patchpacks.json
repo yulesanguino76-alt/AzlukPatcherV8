@@ -1,0 +1,63 @@
+{
+  "format": 1,
+  "name": "Azluk Patch Packs",
+  "version": "8.0",
+  "packs": [
+    {
+      "id": "apk_inspector",
+      "name": "Azluk APK Inspector",
+      "icon": "analytics",
+      "category": "Analysis",
+      "description": "APK/DEX structure, package metadata, permissions and component inspection."
+    },
+    {
+      "id": "data_editor",
+      "name": "Azluk Data Editor",
+      "icon": "database",
+      "category": "Data",
+      "description": "Controlled editing of user-supplied textual assets and patch manifests."
+    },
+    {
+      "id": "resource_lab",
+      "name": "Azluk Resource Lab",
+      "icon": "palette",
+      "category": "Resources",
+      "description": "Resource-oriented inspection and safe repackaging workflows."
+    },
+    {
+      "id": "smali_lab",
+      "name": "Azluk Bytecode Lab",
+      "icon": "code",
+      "category": "Bytecode",
+      "description": "DEX/string inspection with deterministic transformation hooks."
+    },
+    {
+      "id": "repack_engine",
+      "name": "Azluk Repack Engine",
+      "icon": "archive",
+      "category": "Build",
+      "description": "Deterministic ZIP/APK rebuilding and output verification."
+    },
+    {
+      "id": "signing_lab",
+      "name": "Azluk Signing Lab",
+      "icon": "verified",
+      "category": "Build",
+      "description": "Local signing and verification for APKs you are authorized to modify."
+    },
+    {
+      "id": "memory_lab",
+      "name": "Azluk Memory Lab",
+      "icon": "memory",
+      "category": "Runtime",
+      "description": "Architecture for future local debugging/inspection integrations."
+    },
+    {
+      "id": "patch_manifest",
+      "name": "Azluk Patch Manifest",
+      "icon": "tune",
+      "category": "Automation",
+      "description": "Versioned, auditable patch-pack metadata with hashes and provenance."
+    }
+  ]
+}
