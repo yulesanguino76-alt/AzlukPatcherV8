@@ -9,6 +9,7 @@ import android.os.Build
 import android.provider.Settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.azluk.patcher.BuildConfig
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.io.File
