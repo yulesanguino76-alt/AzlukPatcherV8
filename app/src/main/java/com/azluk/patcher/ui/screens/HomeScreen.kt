@@ -2,6 +2,7 @@ package com.azluk.patcher.ui.screens
 
 import android.graphics.drawable.Drawable
 import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -109,6 +110,18 @@ private fun AzlukHeader(
     vm: MainViewModel,
     navController: NavController
 ) {
+    // Infinite slow rotation for the logo
+    val infiniteTransition = rememberInfiniteTransition(label = "logo_rot")
+    val logoRotation by infiniteTransition.animateFloat(
+        initialValue  = 0f,
+        targetValue   = 360f,
+        animationSpec = infiniteRepeatable(
+            animation  = tween(8000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "logo_spin"
+    )
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -125,11 +138,11 @@ private fun AzlukHeader(
             painter            = painterResource(R.mipmap.ic_launcher_foreground),
             contentDescription = null,
             modifier           = Modifier
-                .size(110.dp)
+                .size(130.dp)
                 .align(Alignment.CenterEnd)
-                .offset(x = 18.dp)
-                .alpha(0.06f)          // nearly invisible watermark
-                .blur(2.dp)
+                .offset(x = 22.dp)
+                .rotate(logoRotation)
+                .alpha(0.05f)
         )
 
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
@@ -146,10 +159,10 @@ private fun AzlukHeader(
                         // Glow ring behind logo
                         Box(
                             Modifier
-                                .size(46.dp)
+                                .size(56.dp)
                                 .background(
                                     Brush.radialGradient(
-                                        listOf(AzlukBlue.copy(.25f), Color.Transparent)
+                                        listOf(AzlukBlue.copy(.3f), Color.Transparent)
                                     ),
                                     CircleShape
                                 )
@@ -158,8 +171,8 @@ private fun AzlukHeader(
                             painter            = painterResource(R.mipmap.ic_launcher_foreground),
                             contentDescription = "AzlukPatcher",
                             modifier           = Modifier
-                                .size(40.dp)
-                                .clip(RoundedCornerShape(12.dp))
+                                .size(48.dp)      // bigger, no clip — preserves PNG transparency
+                                .rotate(logoRotation * 0.3f)   // gentle counter-rotate vs watermark
                         )
                     }
                     Spacer(Modifier.width(10.dp))
@@ -523,3 +536,4 @@ fun rememberDrawablePainter(drawable: Drawable): androidx.compose.ui.graphics.pa
         }
     }
 }
+         
