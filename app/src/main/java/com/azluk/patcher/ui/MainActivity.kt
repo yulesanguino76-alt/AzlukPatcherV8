@@ -14,49 +14,47 @@ import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.viewModels
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
-import com.azluk.patcher.ui.screens.DetailScreen
-import com.azluk.patcher.ui.screens.HomeScreen
-import com.azluk.patcher.ui.screens.PatchScreen
-import com.azluk.patcher.ui.screens.PatchedFilesScreen
-import com.azluk.patcher.ui.screens.ToolsScreen
+import com.azluk.patcher.ui.screens.*
 import com.azluk.patcher.ui.theme.AzlukTheme
+import com.azluk.patcher.viewmodel.SystemCheckViewModel
 
 class MainActivity : ComponentActivity() {
 
     private val permissionState = mutableStateOf(false)
+    private val systemCheckVm: SystemCheckViewModel by viewModels()
 
     private val permLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) {
-        permissionState.value = hasRequiredPermission()
-    }
+    ) { permissionState.value = hasRequiredPermission() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         permissionState.value = hasRequiredPermission()
 
+        // Kick off system check immediately on launch
+        systemCheckVm.run()
+
         setContent {
             AzlukTheme {
                 val hasPermission by permissionState
                 if (hasPermission) {
-                    AzlukApplication()
+                    AzlukApp(systemCheckVm)
                 } else {
-                    PermissionRequiredScreen(
-                        onRequestPermission = { requestRequiredPermission() }
-                    )
+                    PermissionRequiredScreen(onRequestPermission = { requestRequiredPermission() })
                 }
             }
         }
-
         if (!hasRequiredPermission()) requestRequiredPermission()
     }
 
@@ -65,24 +63,16 @@ class MainActivity : ComponentActivity() {
         permissionState.value = hasRequiredPermission()
     }
 
-    private fun hasRequiredPermission(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            Environment.isExternalStorageManager()
-        } else {
-            checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) ==
-                PackageManager.PERMISSION_GRANTED
-        }
-    }
+    private fun hasRequiredPermission() =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) Environment.isExternalStorageManager()
+        else checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
 
     private fun requestRequiredPermission() {
         if (hasRequiredPermission()) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            try {
-                startActivity(Intent(
-                    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                    Uri.parse("package:$packageName")
-                ))
-            } catch (_: Exception) {
+            try { startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                Uri.parse("package:$packageName"))) }
+            catch (_: Exception) {
                 try { startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) }
                 catch (_: Exception) {}
             }
@@ -96,26 +86,38 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun AzlukApplication() {
+private fun AzlukApp(systemCheckVm: SystemCheckViewModel) {
+    val profile by systemCheckVm.profile.collectAsStateWithLifecycle()
     val navController = rememberNavController()
-    NavHost(navController = navController, startDestination = "home") {
-        composable("home") { HomeScreen(navController) }
-        composable(
-            "detail/{pkg}",
-            arguments = listOf(navArgument("pkg") { type = NavType.StringType })
-        ) { back ->
-            val pkg = back.arguments?.getString("pkg") ?: return@composable
-            DetailScreen(pkg = pkg, navController = navController)
+
+    // Show splash until system check is done
+    var splashDone by remember { mutableStateOf(false) }
+
+    if (!splashDone) {
+        SplashScreen(
+            profile    = profile,
+            onComplete = { splashDone = true }
+        )
+    } else {
+        NavHost(navController = navController, startDestination = "home") {
+            composable("home")  { HomeScreen(navController) }
+            composable(
+                "detail/{pkg}",
+                arguments = listOf(navArgument("pkg") { type = NavType.StringType })
+            ) { back ->
+                val pkg = back.arguments?.getString("pkg") ?: return@composable
+                DetailScreen(pkg = pkg, navController = navController)
+            }
+            composable(
+                "patch/{pkg}",
+                arguments = listOf(navArgument("pkg") { type = NavType.StringType })
+            ) { back ->
+                val pkg = back.arguments?.getString("pkg") ?: return@composable
+                PatchScreen(pkg = pkg, navController = navController)
+            }
+            composable("patched") { PatchedFilesScreen(navController) }
+            composable("tools")   { ToolsScreen(navController) }
         }
-        composable(
-            "patch/{pkg}",
-            arguments = listOf(navArgument("pkg") { type = NavType.StringType })
-        ) { back ->
-            val pkg = back.arguments?.getString("pkg") ?: return@composable
-            PatchScreen(pkg = pkg, navController = navController)
-        }
-        composable("patched") { PatchedFilesScreen(navController) }
-        composable("tools")   { ToolsScreen(navController) }
     }
 }
 
@@ -126,21 +128,21 @@ private fun PermissionRequiredScreen(onRequestPermission: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text("Permiso necesario", style = MaterialTheme.typography.headlineSmall)
+        Text("Permission Required", style = MaterialTheme.typography.headlineSmall)
         Spacer(Modifier.height(12.dp))
-        Text(
-            "AzlukPatcher necesita acceso completo al almacenamiento para parchear APKs.",
-            modifier = Modifier.padding(bottom = 24.dp)
-        )
-        Button(onClick = onRequestPermission) { Text("Conceder permiso") }
+        Text("AzlukPatcher needs full storage access to patch APKs.",
+            modifier = Modifier.padding(bottom = 24.dp))
+        Button(onClick = onRequestPermission) { Text("Grant Permission") }
     }
 }
 
+// ── InstallReceiver — fixed for Android 12+ ──────────────────────────────────
 class InstallReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, -999)
         val msg    = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
         val local  = Intent("com.azluk.patcher.INSTALL_RESULT_LOCAL").apply {
+            setPackage(ctx.packageName)   // FIX: explicit package so broadcast isn't dropped
             putExtra(PackageInstaller.EXTRA_STATUS, status)
             putExtra(PackageInstaller.EXTRA_STATUS_MESSAGE, msg)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -148,8 +150,7 @@ class InstallReceiver : BroadcastReceiver() {
                     intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java))
             } else {
                 @Suppress("DEPRECATION")
-                putExtra(Intent.EXTRA_INTENT,
-                    intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT))
+                putExtra(Intent.EXTRA_INTENT, intent.getParcelableExtra<Intent>(Intent.EXTRA_INTENT))
             }
         }
         ctx.sendBroadcast(local)
