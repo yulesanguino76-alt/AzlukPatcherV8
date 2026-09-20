@@ -238,50 +238,66 @@ class ApkEngine(private val ctx: Context) {
             }
         }
 
-        // Phase B — repack with DEX patches
+        // Phase B — extract all DEX files, patch them in parallel, then repack.
+        // Parallel strategy: each DEX runs its own SHA-256 string scan + method walk
+        // on a separate thread via a fixed thread pool (min(cores, 4)).
+        // Non-DEX entries are copied sequentially since they're I/O bound anyway.
+        // On a 4-core device, a 3-DEX APK (classes.dex, classes2.dex, classes3.dex)
+        // patches all three simultaneously → wall-clock time ≈ largest single DEX.
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(
+            minOf(Runtime.getRuntime().availableProcessors(), 4))
+
+        // Step B1: read everything into memory structures
+        data class Entry(val name: String, val data: ByteArray, val stored: Boolean = false)
+        val entries = mutableListOf<Entry>()
+
         ZipInputStream(BufferedInputStream(FileInputStream(input), BUF)).use { zi ->
-            ZipOutputStream(BufferedOutputStream(FileOutputStream(tmp), BUF)).use { zo ->
-                var e = zi.nextEntry
-                while (e != null) {
-                    val name = e.name
-
-                    // Drop old signature artifacts
-                    if (isSigEntry(name)) { drainEntry(zi); zi.closeEntry(); e = zi.nextEntry; continue }
-
-                    when {
-                        name == "AndroidManifest.xml" && manifestBytes != null -> {
-                            zo.putNextEntry(ZipEntry(name).apply { method = ZipEntry.DEFLATED })
-                            zo.write(manifestBytes!!)
-                            zo.closeEntry()
-                            drainEntry(zi)
-                        }
-                        name.endsWith(".dex") -> {
-                            val dex = zi.readBytes()
-                            val patched = if (isDex(dex)) {
-                                progress.on("🧬 DEX patching ${name} (${fmtSize(dex.size.toLong())})…")
-                                patchDex(dex, patchKeys, progress)
-                            } else dex
-                            zo.putNextEntry(ZipEntry(name).apply { method = ZipEntry.DEFLATED })
-                            zo.write(patched); zo.closeEntry()
-                        }
-                        name == "resources.arsc" || name.endsWith(".so") -> {
-                            val data = zi.readBytes()
-                            val crc = CRC32().also { it.update(data) }.value
-                            zo.putNextEntry(ZipEntry(name).apply {
-                                method = ZipEntry.STORED
-                                size = data.size.toLong()
-                                compressedSize = data.size.toLong()
-                                this.crc = crc
-                            })
-                            zo.write(data); zo.closeEntry()
-                        }
-                        else -> {
-                            zo.putNextEntry(ZipEntry(name).apply { method = ZipEntry.DEFLATED })
-                            zi.copyTo(zo, BUF); zo.closeEntry()
-                        }
-                    }
-                    zi.closeEntry(); e = zi.nextEntry
+            var e = zi.nextEntry
+            while (e != null) {
+                val name = e.name
+                if (!isSigEntry(name) && !e.isDirectory) {
+                    val data = zi.readBytes()
+                    val stored = name == "resources.arsc" || name.endsWith(".so")
+                    entries.add(Entry(name, data, stored))
+                } else {
+                    drainEntry(zi)
                 }
+                zi.closeEntry(); e = zi.nextEntry
+            }
+        }
+
+        // Step B2: submit DEX patch jobs to thread pool
+        val futures = entries
+            .filter { it.name.endsWith(".dex") && isDex(it.data) }
+            .associate { entry ->
+                entry.name to pool.submit<ByteArray> {
+                    progress.on("🧬 [parallel] ${entry.name} (${fmtSize(entry.data.size.toLong())})")
+                    patchDex(entry.data, patchKeys, progress)
+                }
+            }
+        pool.shutdown()
+
+        // Step B3: repack ZIP with patched DEX data
+        ZipOutputStream(BufferedOutputStream(FileOutputStream(tmp), BUF)).use { zo ->
+            for (entry in entries) {
+                val name = entry.name
+                val data = when {
+                    name == "AndroidManifest.xml" && manifestBytes != null -> manifestBytes!!
+                    futures.containsKey(name) -> futures[name]!!.get()  // wait for parallel result
+                    else -> entry.data
+                }
+                if (entry.stored) {
+                    val crc = CRC32().also { it.update(data) }.value
+                    zo.putNextEntry(ZipEntry(name).apply {
+                        method = ZipEntry.STORED
+                        size = data.size.toLong()
+                        compressedSize = data.size.toLong()
+                        this.crc = crc
+                    })
+                } else {
+                    zo.putNextEntry(ZipEntry(name).apply { method = ZipEntry.DEFLATED })
+                }
+                zo.write(data); zo.closeEntry()
             }
         }
 
