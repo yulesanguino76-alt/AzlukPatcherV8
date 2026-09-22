@@ -21,7 +21,9 @@ import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -37,64 +39,64 @@ import com.azluk.patcher.viewmodel.MainViewModel
 @Composable
 fun HomeScreen(navController: NavController, vm: MainViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
-
     LaunchedEffect(Unit) { vm.load() }
 
-    Scaffold(
-        containerColor = AzlukBg,
-        topBar = { AzlukHeader(state, vm, navController) }
-    ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
-            if (state.isLoading) {
-                Column(
-                    Modifier.align(Alignment.Center),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    CircularProgressIndicator(color = AzlukBlue, strokeWidth = 2.dp)
-                    Text("Loading apps…", color = AzlukOnSurface, fontSize = 13.sp)
-                }
-            } else {
-                LazyColumn(
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    // Stats banner
-                    item {
-                        StatsBanner(state.filteredApps)
-                        Spacer(Modifier.height(4.dp))
-                    }
-                    items(state.filteredApps, key = { it.packageName }) { app ->
-                        AppCard(app = app, onClick = {
-                            navController.navigate("detail/${app.packageName}")
-                        })
-                    }
-                }
-            }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(AzlukBg)
+            // Draw content behind status bar — full screen
+            .systemBarsPadding()
+    ) {
+        Column(Modifier.fillMaxSize()) {
+            AzlukHeader(state, vm, navController)
 
-            // Scanning progress at bottom
-            AnimatedVisibility(
-                visible  = state.isScanning,
-                modifier = Modifier.align(Alignment.BottomCenter),
-                enter    = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
-                exit     = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom)
-            ) {
-                Surface(
-                    color  = AzlukSurface,
-                    border = BorderStroke(1.dp, AzlukBlue.copy(.2f))
-                ) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+            Box(Modifier.weight(1f)) {
+                if (state.isLoading) {
+                    Column(
+                        Modifier.align(Alignment.Center),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        LinearProgressIndicator(
-                            modifier   = Modifier.weight(1f).height(3.dp).clip(CircleShape),
-                            color      = AzlukBlue,
-                            trackColor = AzlukSurfaceVar
-                        )
-                        Text("Scanning DEX…", color = AzlukBlue, fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold)
+                        CircularProgressIndicator(color = AzlukBlue, strokeWidth = 2.dp)
+                        Text("Loading apps…", color = AzlukOnSurface, fontSize = 13.sp)
+                    }
+                } else {
+                    LazyColumn(
+                        contentPadding     = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        item { StatsBanner(state.filteredApps); Spacer(Modifier.height(4.dp)) }
+                        items(state.filteredApps, key = { it.packageName }) { app ->
+                            AppCard(app) { navController.navigate("patch/${app.packageName}") }
+                        }
+                    }
+                }
+
+                // Bottom scanning bar
+                AnimatedVisibility(
+                    visible  = state.isScanning,
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    enter    = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
+                    exit     = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom)
+                ) {
+                    Surface(
+                        color  = AzlukSurface,
+                        border = BorderStroke(1.dp, AzlukBlue.copy(.2f))
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            LinearProgressIndicator(
+                                modifier   = Modifier.weight(1f).height(3.dp).clip(CircleShape),
+                                color      = AzlukBlue,
+                                trackColor = AzlukSurfaceVar
+                            )
+                            Text("Scanning DEX…", color = AzlukBlue, fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold)
+                        }
                     }
                 }
             }
@@ -102,7 +104,7 @@ fun HomeScreen(navController: NavController, vm: MainViewModel = viewModel()) {
     }
 }
 
-// ── Header — transparent logo overlay + redesigned buttons ───────────────────
+// ── Header ────────────────────────────────────────────────────────────────────
 
 @Composable
 private fun AzlukHeader(
@@ -110,16 +112,16 @@ private fun AzlukHeader(
     vm: MainViewModel,
     navController: NavController
 ) {
-    // Infinite slow rotation for the logo
-    val infiniteTransition = rememberInfiniteTransition(label = "logo_rot")
-    val logoRotation by infiniteTransition.animateFloat(
+    // Slow infinite rotation for the logo
+    val infiniteTransition = rememberInfiniteTransition(label = "logo")
+    val rotation by infiniteTransition.animateFloat(
         initialValue  = 0f,
         targetValue   = 360f,
         animationSpec = infiniteRepeatable(
-            animation  = tween(8000, easing = LinearEasing),
+            animation  = tween(9000, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "logo_spin"
+        label = "spin"
     )
 
     Box(
@@ -128,112 +130,76 @@ private fun AzlukHeader(
             .background(
                 Brush.verticalGradient(
                     0f to AzlukSurface2,
-                    0.6f to AzlukSurface.copy(.95f),
+                    0.7f to AzlukSurface.copy(.94f),
                     1f to AzlukBg
                 )
             )
     ) {
-        // ── Transparent watermark logo behind everything ──────────────────────
+        // Faint watermark — same transparent logo, rotates, behind content
         Image(
-            painter            = painterResource(R.mipmap.ic_launcher_foreground),
+            painter            = painterResource(R.drawable.azluk_logo_transparent),
             contentDescription = null,
             modifier           = Modifier
-                .size(130.dp)
+                .size(140.dp)
                 .align(Alignment.CenterEnd)
-                .offset(x = 22.dp)
-                .rotate(logoRotation)
+                .offset(x = 24.dp)
+                .rotate(rotation)
                 .alpha(0.05f)
         )
 
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
 
-            // ── Row 1: logo + name + action buttons ───────────────────────────
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                // Left — visible logo + name
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            // ── Row 1: logo (center) + action buttons (right) ─────────────────
+            // Name centered as requested
+            Box(Modifier.fillMaxWidth()) {
+                // Centered logo + title block
+                Column(
+                    Modifier.align(Alignment.Center),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     Box(contentAlignment = Alignment.Center) {
-                        // Glow ring behind logo
+                        // Glow behind logo
                         Box(
                             Modifier
-                                .size(56.dp)
+                                .size(64.dp)
                                 .background(
-                                    Brush.radialGradient(
-                                        listOf(AzlukBlue.copy(.3f), Color.Transparent)
-                                    ),
+                                    Brush.radialGradient(listOf(AzlukBlue.copy(.28f), Color.Transparent)),
                                     CircleShape
                                 )
                         )
+                        // Transparent logo — no .clip() so the PNG alpha is preserved
                         Image(
-                            painter            = painterResource(R.mipmap.ic_launcher_foreground),
+                            painter            = painterResource(R.drawable.azluk_logo_transparent),
                             contentDescription = "AzlukPatcher",
                             modifier           = Modifier
-                                .size(48.dp)      // bigger, no clip — preserves PNG transparency
-                                .rotate(logoRotation * 0.3f)   // gentle counter-rotate vs watermark
+                                .size(54.dp)       // bigger than before
+                                .rotate(rotation * 0.25f)  // gentle counter-rotation
                         )
                     }
-                    Spacer(Modifier.width(10.dp))
-                    Column {
-                        Text(
-                            "AzlukPatcher",
-                            color      = AzlukOnBg,
-                            fontSize   = 20.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            letterSpacing = (-0.5).sp
-                        )
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            // V8 badge
-                            Surface(
-                                color = AzlukBlue,
-                                shape = RoundedCornerShape(4.dp)
-                            ) {
-                                Text(
-                                    "V8",
-                                    color    = Color.White,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
-                                )
-                            }
-                            Text(
-                                "by Azluk",
-                                color    = AzlukOnSurface,
-                                fontSize = 10.sp
-                            )
-                        }
-                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "AzlukPatcher",
+                        color         = AzlukOnBg,
+                        fontSize      = 20.sp,
+                        fontWeight    = FontWeight.ExtraBold,
+                        letterSpacing = (-0.5).sp,
+                        textAlign     = TextAlign.Center
+                    )
+                    // No "by Azluk", no "V8" badge
                 }
 
                 // Right — pill action buttons
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    HeaderActionButton(
-                        icon    = Icons.Default.Build,
-                        label   = "Tools",
-                        tint    = AzlukCyan,
-                        onClick = { navController.navigate("tools") }
-                    )
-                    HeaderActionButton(
-                        icon    = Icons.Default.FolderOpen,
-                        label   = "Files",
-                        tint    = AzlukWarning,
-                        onClick = { navController.navigate("patched") }
-                    )
-                    HeaderActionButton(
-                        icon    = Icons.Default.Refresh,
-                        label   = "Refresh",
-                        tint    = AzlukBlue,
-                        onClick = { vm.refresh() }
-                    )
+                Row(
+                    modifier              = Modifier.align(Alignment.CenterEnd),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    HeaderBtn(Icons.Default.Build,      "Tools",   AzlukCyan)    { navController.navigate("tools") }
+                    HeaderBtn(Icons.Default.FolderOpen, "Files",   AzlukWarning) { navController.navigate("patched") }
+                    HeaderBtn(Icons.Default.Refresh,    "Refresh", AzlukBlue)    { vm.refresh() }
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(14.dp))
 
             // ── Search bar ────────────────────────────────────────────────────
             Surface(
@@ -242,7 +208,7 @@ private fun AzlukHeader(
                 border = BorderStroke(1.dp, AzlukSurfaceVar)
             ) {
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 0.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(Icons.Default.Search, null, tint = AzlukOnSurface, modifier = Modifier.size(18.dp))
@@ -251,15 +217,12 @@ private fun AzlukHeader(
                         value         = state.query,
                         onValueChange = vm::setQuery,
                         singleLine    = true,
-                        textStyle     = androidx.compose.ui.text.TextStyle(
-                            color    = AzlukOnBg,
-                            fontSize = 14.sp
-                        ),
-                        modifier      = Modifier.weight(1f).padding(vertical = 14.dp),
-                        decorationBox = { inner ->
+                        textStyle     = TextStyle(color = AzlukOnBg, fontSize = 14.sp),
+                        modifier      = Modifier.weight(1f).padding(vertical = 13.dp),
+                        decorationBox = @Composable { inner ->
                             if (state.query.isEmpty()) {
                                 Text("Search apps, packages…",
-                                    color = AzlukOnSurface.copy(.5f), fontSize = 14.sp)
+                                    color = AzlukOnSurface.copy(.45f), fontSize = 14.sp)
                             }
                             inner()
                         }
@@ -279,17 +242,17 @@ private fun AzlukHeader(
                 listOf("User", "System", "All").forEachIndexed { i, label ->
                     val sel = state.filter == i
                     Surface(
-                        color  = if (sel) AzlukBlue else AzlukSurface,
-                        shape  = RoundedCornerShape(20.dp),
-                        border = if (!sel) BorderStroke(1.dp, AzlukSurfaceVar) else null,
+                        color    = if (sel) AzlukBlue else AzlukSurface,
+                        shape    = RoundedCornerShape(20.dp),
+                        border   = if (!sel) BorderStroke(1.dp, AzlukSurfaceVar) else null,
                         modifier = Modifier.clickable { vm.setFilter(i) }
                     ) {
                         Text(
                             label,
-                            color    = if (sel) Color.White else AzlukOnSurface,
-                            fontSize = 12.sp,
+                            color      = if (sel) Color.White else AzlukOnSurface,
+                            fontSize   = 12.sp,
                             fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
+                            modifier   = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
                         )
                     }
                 }
@@ -305,14 +268,10 @@ private fun AzlukHeader(
     }
 }
 
-// ── Header action button — pill shape with icon + label ──────────────────────
-
 @Composable
-private fun HeaderActionButton(
-    icon:    androidx.compose.ui.graphics.vector.ImageVector,
-    label:   String,
-    tint:    Color,
-    onClick: () -> Unit
+private fun HeaderBtn(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String, tint: Color, onClick: () -> Unit
 ) {
     Surface(
         color    = tint.copy(.1f),
@@ -322,8 +281,8 @@ private fun HeaderActionButton(
     ) {
         Column(
             Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-            horizontalAlignment    = Alignment.CenterHorizontally,
-            verticalArrangement    = Arrangement.spacedBy(3.dp)
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
             Icon(icon, null, tint = tint, modifier = Modifier.size(18.dp))
             Text(label, color = tint, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
@@ -331,13 +290,13 @@ private fun HeaderActionButton(
     }
 }
 
-// ── Stats banner ─────────────────────────────────────────────────────────────
+// ── Stats banner ──────────────────────────────────────────────────────────────
 
 @Composable
 private fun StatsBanner(apps: List<AppInfo>) {
     val patchable = apps.count { it.patchStatus == PatchStatus.PATCHABLE }
-    val complex   = apps.count { it.patchStatus == PatchStatus.COMPLEX }
     val likely    = apps.count { it.patchStatus == PatchStatus.LIKELY }
+    val complex   = apps.count { it.patchStatus == PatchStatus.COMPLEX }
 
     Surface(
         color  = AzlukSurface,
@@ -365,7 +324,7 @@ private fun StatItem(value: String, label: String, color: Color) {
     }
 }
 
-// ── App card — redesigned with decoration ─────────────────────────────────────
+// ── App card ──────────────────────────────────────────────────────────────────
 
 @Composable
 fun AppCard(app: AppInfo, onClick: () -> Unit) {
@@ -375,7 +334,6 @@ fun AppCard(app: AppInfo, onClick: () -> Unit) {
         PatchStatus.COMPLEX   -> AzlukWarning
         PatchStatus.UNKNOWN   -> AzlukOnSurface.copy(.3f)
     }
-
     Surface(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         color    = AzlukSurface,
@@ -383,37 +341,25 @@ fun AppCard(app: AppInfo, onClick: () -> Unit) {
         border   = BorderStroke(1.dp, statusColor.copy(.15f))
     ) {
         Box {
-            // Left accent bar
             Box(
-                Modifier
-                    .width(3.dp)
-                    .height(52.dp)
-                    .align(Alignment.CenterStart)
+                Modifier.width(3.dp).height(52.dp).align(Alignment.CenterStart)
                     .clip(RoundedCornerShape(topEnd = 4.dp, bottomEnd = 4.dp))
                     .background(statusColor.copy(.6f))
             )
-
             Row(
                 Modifier.padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // App icon with glow
                 Box(contentAlignment = Alignment.Center) {
                     Box(
-                        Modifier
-                            .size(50.dp)
+                        Modifier.size(50.dp)
                             .background(
-                                Brush.radialGradient(
-                                    listOf(statusColor.copy(.12f), Color.Transparent)
-                                ),
+                                Brush.radialGradient(listOf(statusColor.copy(.12f), Color.Transparent)),
                                 RoundedCornerShape(12.dp)
                             )
                     )
                     Box(
-                        Modifier
-                            .size(46.dp)
-                            .clip(RoundedCornerShape(11.dp))
-                            .background(AzlukSurface2),
+                        Modifier.size(46.dp).clip(RoundedCornerShape(11.dp)).background(AzlukSurface2),
                         contentAlignment = Alignment.Center
                     ) {
                         if (app.icon != null) {
@@ -423,47 +369,27 @@ fun AppCard(app: AppInfo, onClick: () -> Unit) {
                                 modifier           = Modifier.size(42.dp)
                             )
                         } else {
-                            Icon(Icons.Default.Android, null,
-                                tint = AzlukOnSurface, modifier = Modifier.size(26.dp))
+                            Icon(Icons.Default.Android, null, tint = AzlukOnSurface, modifier = Modifier.size(26.dp))
                         }
                     }
                 }
-
                 Spacer(Modifier.width(12.dp))
-
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        app.appName,
-                        color      = AzlukOnBg,
-                        fontSize   = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines   = 1,
-                        overflow   = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        app.packageName,
-                        color    = AzlukOnSurface,
-                        fontSize = 10.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Text(app.appName, color = AzlukOnBg, fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(app.packageName, color = AzlukOnSurface, fontSize = 10.sp,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.height(5.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(5.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         StatusChip(app.patchStatus, app.opportunityCount)
-                        if (app.isSystemApp) {
-                            MiniTag("SYS", AzlukWarning)
-                        }
-                        if (app.apkSizeMb > 0) {
-                            MiniTag("%.0fM".format(app.apkSizeMb), AzlukOnSurface.copy(.5f))
-                        }
+                        if (app.isSystemApp) MiniTag("SYS", AzlukWarning)
+                        if (app.apkSizeMb > 0) MiniTag("%.0fM".format(app.apkSizeMb), AzlukOnSurface.copy(.5f))
                     }
                 }
-
-                // Arrow with colored bg
                 Surface(
-                    color  = statusColor.copy(.08f),
-                    shape  = CircleShape,
+                    color    = statusColor.copy(.08f),
+                    shape    = CircleShape,
                     modifier = Modifier.size(32.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
@@ -478,21 +404,11 @@ fun AppCard(app: AppInfo, onClick: () -> Unit) {
 
 @Composable
 private fun MiniTag(text: String, color: Color) {
-    Surface(
-        color = color.copy(.1f),
-        shape = RoundedCornerShape(4.dp)
-    ) {
-        Text(
-            text,
-            color    = color,
-            fontSize = 9.sp,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-        )
+    Surface(color = color.copy(.1f), shape = RoundedCornerShape(4.dp)) {
+        Text(text, color = color, fontSize = 9.sp, fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp))
     }
 }
-
-// ── Status chip ───────────────────────────────────────────────────────────────
 
 @Composable
 fun StatusChip(status: PatchStatus, count: Int) {
@@ -502,10 +418,7 @@ fun StatusChip(status: PatchStatus, count: Int) {
         PatchStatus.COMPLEX   -> Triple(AzlukWarning, "Complex",            Icons.Default.Warning)
         PatchStatus.UNKNOWN   -> Triple(AzlukOnSurface.copy(.4f), "…",     Icons.Default.HourglassEmpty)
     }
-    Surface(
-        color = color.copy(.1f),
-        shape = RoundedCornerShape(6.dp)
-    ) {
+    Surface(color = color.copy(.1f), shape = RoundedCornerShape(6.dp)) {
         Row(
             Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -517,15 +430,12 @@ fun StatusChip(status: PatchStatus, count: Int) {
     }
 }
 
-// ── Drawable painter helper ───────────────────────────────────────────────────
-
 @Composable
 fun rememberDrawablePainter(drawable: Drawable): androidx.compose.ui.graphics.painter.Painter {
     return remember(drawable) {
         object : androidx.compose.ui.graphics.painter.Painter() {
             override val intrinsicSize = Size(
-                drawable.intrinsicWidth.toFloat(),
-                drawable.intrinsicHeight.toFloat()
+                drawable.intrinsicWidth.toFloat(), drawable.intrinsicHeight.toFloat()
             )
             override fun DrawScope.onDraw() {
                 drawIntoCanvas { canvas ->
@@ -536,4 +446,3 @@ fun rememberDrawablePainter(drawable: Drawable): androidx.compose.ui.graphics.pa
         }
     }
 }
-         
