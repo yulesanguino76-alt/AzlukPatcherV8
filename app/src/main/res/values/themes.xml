@@ -1,10 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.AzlukPatcher" parent="Theme.Material3.Dark.NoActionBar">
-        <item name="android:windowBackground">@android:color/black</item>
+        <!-- Full screen — content draws behind system bars -->
+        <item name="android:windowBackground">@color/bg_dark</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
+        <!-- Enforce edge-to-edge on API 29+ -->
+        <item name="android:enforceStatusBarContrast" tools:targetApi="q">false</item>
+        <item name="android:enforceNavigationBarContrast" tools:targetApi="q">false</item>
     </style>
 </resources>
