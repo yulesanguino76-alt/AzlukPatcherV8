@@ -74,15 +74,11 @@ fun HomeScreen(navController: NavController, vm: MainViewModel = viewModel()) {
                 }
 
                 // Bottom scanning bar
-                AnimatedVisibility(
-                    visible  = state.isScanning,
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                    enter    = fadeIn() + expandVertically(expandFrom = Alignment.Bottom),
-                    exit     = fadeOut() + shrinkVertically(shrinkTowards = Alignment.Bottom)
-                ) {
+                if (state.isScanning) {
                     Surface(
-                        color  = AzlukSurface,
-                        border = BorderStroke(1.dp, AzlukBlue.copy(.2f))
+                        color    = AzlukSurface,
+                        border   = BorderStroke(1.dp, AzlukBlue.copy(.2f)),
+                        modifier = Modifier.align(Alignment.BottomCenter)
                     ) {
                         Row(
                             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -99,6 +95,7 @@ fun HomeScreen(navController: NavController, vm: MainViewModel = viewModel()) {
                         }
                     }
                 }
+
             }
         }
     }
