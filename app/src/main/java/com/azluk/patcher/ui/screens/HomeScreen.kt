@@ -1,7 +1,6 @@
 package com.azluk.patcher.ui.screens
 
 import android.graphics.drawable.Drawable
-import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -23,7 +22,6 @@ import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -35,35 +33,25 @@ import com.azluk.patcher.core.PatchStatus
 import com.azluk.patcher.ui.theme.*
 import com.azluk.patcher.viewmodel.MainViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(navController: NavController, vm: MainViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { vm.load() }
 
     Box(
-        Modifier
-            .fillMaxSize()
-            .background(AzlukBg)
-            // Draw content behind status bar — full screen
-            .systemBarsPadding()
+        Modifier.fillMaxSize().background(AzlukBg).systemBarsPadding()
     ) {
         Column(Modifier.fillMaxSize()) {
             AzlukHeader(state, vm, navController)
-
             Box(Modifier.weight(1f)) {
                 if (state.isLoading) {
-                    Column(
-                        Modifier.align(Alignment.Center),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        CircularProgressIndicator(color = AzlukBlue, strokeWidth = 2.dp)
-                        Text("Loading apps…", color = AzlukOnSurface, fontSize = 13.sp)
-                    }
+                    CircularProgressIndicator(
+                        color    = AzlukBlue,
+                        modifier = Modifier.align(Alignment.Center)
+                    )
                 } else {
                     LazyColumn(
-                        contentPadding     = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                        contentPadding      = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         item { StatsBanner(state.filteredApps); Spacer(Modifier.height(4.dp)) }
@@ -72,8 +60,7 @@ fun HomeScreen(navController: NavController, vm: MainViewModel = viewModel()) {
                         }
                     }
                 }
-
-                // Bottom scanning bar
+                // Scanning bar at bottom
                 if (state.isScanning) {
                     Surface(
                         color    = AzlukSurface,
@@ -82,26 +69,25 @@ fun HomeScreen(navController: NavController, vm: MainViewModel = viewModel()) {
                     ) {
                         Row(
                             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            verticalAlignment          = Alignment.CenterVertically,
+                            horizontalArrangement      = Arrangement.spacedBy(10.dp)
                         ) {
                             LinearProgressIndicator(
                                 modifier   = Modifier.weight(1f).height(3.dp).clip(CircleShape),
                                 color      = AzlukBlue,
                                 trackColor = AzlukSurfaceVar
                             )
-                            Text("Scanning DEX…", color = AzlukBlue, fontSize = 11.sp,
+                            Text("Scanning…", color = AzlukBlue, fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold)
                         }
                     }
                 }
-
             }
         }
     }
 }
 
-// ── Header ────────────────────────────────────────────────────────────────────
+// ── Header — logo LEFT-aligned as requested, no Tools button ─────────────────
 
 @Composable
 private fun AzlukHeader(
@@ -109,7 +95,6 @@ private fun AzlukHeader(
     vm: MainViewModel,
     navController: NavController
 ) {
-    // Slow infinite rotation for the logo
     val infiniteTransition = rememberInfiniteTransition(label = "logo")
     val rotation by infiniteTransition.animateFloat(
         initialValue  = 0f,
@@ -124,73 +109,52 @@ private fun AzlukHeader(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .background(
-                Brush.verticalGradient(
-                    0f to AzlukSurface2,
-                    0.7f to AzlukSurface.copy(.94f),
-                    1f to AzlukBg
-                )
-            )
+            .background(Brush.verticalGradient(0f to AzlukSurface2, 0.7f to AzlukSurface.copy(.94f), 1f to AzlukBg))
     ) {
-        // Faint watermark — same transparent logo, rotates, behind content
+        // Faint watermark
         Image(
             painter            = painterResource(R.drawable.azluk_logo_transparent),
             contentDescription = null,
             modifier           = Modifier
-                .size(140.dp)
-                .align(Alignment.CenterEnd)
-                .offset(x = 24.dp)
-                .rotate(rotation)
-                .alpha(0.05f)
+                .size(130.dp).align(Alignment.CenterEnd)
+                .offset(x = 22.dp).rotate(rotation).alpha(0.05f)
         )
 
         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
 
-            // ── Row 1: logo (center) + action buttons (right) ─────────────────
-            // Name centered as requested
-            Box(Modifier.fillMaxWidth()) {
-                // Centered logo + title block
-                Column(
-                    Modifier.align(Alignment.Center),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
+            // ── Row: logo LEFT + name LEFT, action buttons RIGHT ──────────────
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment     = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                // LEFT — logo + name (back to left-aligned as in original)
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(contentAlignment = Alignment.Center) {
-                        // Glow behind logo
                         Box(
-                            Modifier
-                                .size(64.dp)
-                                .background(
-                                    Brush.radialGradient(listOf(AzlukBlue.copy(.28f), Color.Transparent)),
-                                    CircleShape
-                                )
+                            Modifier.size(56.dp)
+                                .background(Brush.radialGradient(listOf(AzlukBlue.copy(.28f), Color.Transparent)), CircleShape)
                         )
-                        // Transparent logo — no .clip() so the PNG alpha is preserved
+                        // Transparent logo — no .clip() = no black background
                         Image(
                             painter            = painterResource(R.drawable.azluk_logo_transparent),
                             contentDescription = "AzlukPatcher",
-                            modifier           = Modifier
-                                .size(54.dp)       // bigger than before
-                                .rotate(rotation * 0.25f)  // gentle counter-rotation
+                            modifier           = Modifier.size(52.dp).rotate(rotation * 0.2f)
                         )
                     }
-                    Spacer(Modifier.height(4.dp))
+                    Spacer(Modifier.width(10.dp))
+                    // Name only — no "V8", no "by Azluk"
                     Text(
                         "AzlukPatcher",
                         color         = AzlukOnBg,
                         fontSize      = 20.sp,
                         fontWeight    = FontWeight.ExtraBold,
-                        letterSpacing = (-0.5).sp,
-                        textAlign     = TextAlign.Center
+                        letterSpacing = (-0.5).sp
                     )
-                    // No "by Azluk", no "V8" badge
                 }
 
-                // Right — pill action buttons
-                Row(
-                    modifier              = Modifier.align(Alignment.CenterEnd),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    HeaderBtn(Icons.Default.Build,      "Tools",   AzlukCyan)    { navController.navigate("tools") }
+                // RIGHT — Files + Refresh (no Tools)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     HeaderBtn(Icons.Default.FolderOpen, "Files",   AzlukWarning) { navController.navigate("patched") }
                     HeaderBtn(Icons.Default.Refresh,    "Refresh", AzlukBlue)    { vm.refresh() }
                 }
@@ -234,7 +198,7 @@ private fun AzlukHeader(
 
             Spacer(Modifier.height(10.dp))
 
-            // ── Filter chips + count ──────────────────────────────────────────
+            // ── Filter chips ──────────────────────────────────────────────────
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf("User", "System", "All").forEachIndexed { i, label ->
                     val sel = state.filter == i
@@ -244,22 +208,17 @@ private fun AzlukHeader(
                         border   = if (!sel) BorderStroke(1.dp, AzlukSurfaceVar) else null,
                         modifier = Modifier.clickable { vm.setFilter(i) }
                     ) {
-                        Text(
-                            label,
+                        Text(label,
                             color      = if (sel) Color.White else AzlukOnSurface,
                             fontSize   = 12.sp,
                             fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
-                            modifier   = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
-                        )
+                            modifier   = Modifier.padding(horizontal = 14.dp, vertical = 6.dp))
                     }
                 }
                 Spacer(Modifier.weight(1f))
-                Text(
-                    "${state.filteredApps.size} apps",
-                    color    = AzlukOnSurface,
-                    fontSize = 12.sp,
-                    modifier = Modifier.align(Alignment.CenterVertically)
-                )
+                Text("${state.filteredApps.size} apps",
+                    color = AzlukOnSurface, fontSize = 12.sp,
+                    modifier = Modifier.align(Alignment.CenterVertically))
             }
         }
     }
@@ -287,19 +246,13 @@ private fun HeaderBtn(
     }
 }
 
-// ── Stats banner ──────────────────────────────────────────────────────────────
-
 @Composable
 private fun StatsBanner(apps: List<AppInfo>) {
     val patchable = apps.count { it.patchStatus == PatchStatus.PATCHABLE }
     val likely    = apps.count { it.patchStatus == PatchStatus.LIKELY }
     val complex   = apps.count { it.patchStatus == PatchStatus.COMPLEX }
-
-    Surface(
-        color  = AzlukSurface,
-        shape  = RoundedCornerShape(16.dp),
-        border = BorderStroke(1.dp, AzlukSurfaceVar)
-    ) {
+    Surface(color = AzlukSurface, shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, AzlukSurfaceVar)) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.SpaceEvenly
@@ -321,8 +274,6 @@ private fun StatItem(value: String, label: String, color: Color) {
     }
 }
 
-// ── App card ──────────────────────────────────────────────────────────────────
-
 @Composable
 fun AppCard(app: AppInfo, onClick: () -> Unit) {
     val statusColor = when (app.patchStatus) {
@@ -338,33 +289,20 @@ fun AppCard(app: AppInfo, onClick: () -> Unit) {
         border   = BorderStroke(1.dp, statusColor.copy(.15f))
     ) {
         Box {
-            Box(
-                Modifier.width(3.dp).height(52.dp).align(Alignment.CenterStart)
-                    .clip(RoundedCornerShape(topEnd = 4.dp, bottomEnd = 4.dp))
-                    .background(statusColor.copy(.6f))
-            )
-            Row(
-                Modifier.padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+            Box(Modifier.width(3.dp).height(52.dp).align(Alignment.CenterStart)
+                .clip(RoundedCornerShape(topEnd = 4.dp, bottomEnd = 4.dp))
+                .background(statusColor.copy(.6f)))
+            Row(Modifier.padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = 12.dp),
+                verticalAlignment = Alignment.CenterVertically) {
                 Box(contentAlignment = Alignment.Center) {
-                    Box(
-                        Modifier.size(50.dp)
-                            .background(
-                                Brush.radialGradient(listOf(statusColor.copy(.12f), Color.Transparent)),
-                                RoundedCornerShape(12.dp)
-                            )
-                    )
-                    Box(
-                        Modifier.size(46.dp).clip(RoundedCornerShape(11.dp)).background(AzlukSurface2),
-                        contentAlignment = Alignment.Center
-                    ) {
+                    Box(Modifier.size(50.dp).background(
+                        Brush.radialGradient(listOf(statusColor.copy(.12f), Color.Transparent)),
+                        RoundedCornerShape(12.dp)))
+                    Box(Modifier.size(46.dp).clip(RoundedCornerShape(11.dp)).background(AzlukSurface2),
+                        contentAlignment = Alignment.Center) {
                         if (app.icon != null) {
-                            Image(
-                                painter            = rememberDrawablePainter(app.icon),
-                                contentDescription = app.appName,
-                                modifier           = Modifier.size(42.dp)
-                            )
+                            Image(painter = rememberDrawablePainter(app.icon),
+                                contentDescription = app.appName, modifier = Modifier.size(42.dp))
                         } else {
                             Icon(Icons.Default.Android, null, tint = AzlukOnSurface, modifier = Modifier.size(26.dp))
                         }
@@ -384,14 +322,9 @@ fun AppCard(app: AppInfo, onClick: () -> Unit) {
                         if (app.apkSizeMb > 0) MiniTag("%.0fM".format(app.apkSizeMb), AzlukOnSurface.copy(.5f))
                     }
                 }
-                Surface(
-                    color    = statusColor.copy(.08f),
-                    shape    = CircleShape,
-                    modifier = Modifier.size(32.dp)
-                ) {
+                Surface(color = statusColor.copy(.08f), shape = CircleShape, modifier = Modifier.size(32.dp)) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.ChevronRight, null,
-                            tint = statusColor.copy(.7f), modifier = Modifier.size(18.dp))
+                        Icon(Icons.Default.ChevronRight, null, tint = statusColor.copy(.7f), modifier = Modifier.size(18.dp))
                     }
                 }
             }
@@ -413,14 +346,12 @@ fun StatusChip(status: PatchStatus, count: Int) {
         PatchStatus.PATCHABLE -> Triple(AzlukSuccess, "Patchable ($count)", Icons.Default.CheckCircle)
         PatchStatus.LIKELY    -> Triple(AzlukBlue,    "Likely",             Icons.Default.TipsAndUpdates)
         PatchStatus.COMPLEX   -> Triple(AzlukWarning, "Complex",            Icons.Default.Warning)
-        PatchStatus.UNKNOWN   -> Triple(AzlukOnSurface.copy(.4f), "…",     Icons.Default.HourglassEmpty)
+        PatchStatus.UNKNOWN   -> Triple(AzlukOnSurface.copy(.4f), "Scanning", Icons.Default.HourglassEmpty)
     }
     Surface(color = color.copy(.1f), shape = RoundedCornerShape(6.dp)) {
-        Row(
-            Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+        Row(Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
+            horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Icon(icon, null, tint = color, modifier = Modifier.size(10.dp))
             Text(label, color = color, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
         }
@@ -428,12 +359,10 @@ fun StatusChip(status: PatchStatus, count: Int) {
 }
 
 @Composable
-fun rememberDrawablePainter(drawable: Drawable): androidx.compose.ui.graphics.painter.Painter {
-    return remember(drawable) {
+fun rememberDrawablePainter(drawable: Drawable): androidx.compose.ui.graphics.painter.Painter =
+    remember(drawable) {
         object : androidx.compose.ui.graphics.painter.Painter() {
-            override val intrinsicSize = Size(
-                drawable.intrinsicWidth.toFloat(), drawable.intrinsicHeight.toFloat()
-            )
+            override val intrinsicSize = Size(drawable.intrinsicWidth.toFloat(), drawable.intrinsicHeight.toFloat())
             override fun DrawScope.onDraw() {
                 drawIntoCanvas { canvas ->
                     drawable.setBounds(0, 0, size.width.toInt(), size.height.toInt())
