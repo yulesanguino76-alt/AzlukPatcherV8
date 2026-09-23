@@ -1,282 +1,309 @@
-package com.azluk.patcher.viewmodel
+package com.azluk.patcher.ui.screens
 
-import android.app.Application
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.content.Context
+import android.app.PendingIntent
+import android.content.*
 import android.content.pm.PackageInstaller
 import android.os.Build
-import androidx.core.app.NotificationCompat
-import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
-import com.azluk.patcher.BuildConfig
+import android.widget.Toast
+import androidx.compose.animation.*
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.*
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.*
+import androidx.compose.ui.unit.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
 import com.azluk.patcher.core.*
-import com.azluk.patcher.engine.ApkEngine
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.*
+import com.azluk.patcher.ui.theme.*
+import com.azluk.patcher.viewmodel.PatchViewModel  // import — NOT redeclare
 import java.io.File
+import java.io.FileInputStream
 
-data class AiDiagnosis(
-    val loading:    Boolean = false,
-    val suggestion: String  = "",
-    val error:      String  = ""
-)
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PatchLogScreen(pkg: String, navController: NavController, vm: PatchViewModel = viewModel()) {
+    val state   by vm.state.collectAsStateWithLifecycle()
+    val ctx      = LocalContext.current
+    val logState = rememberLazyListState()
 
-data class PatchUiState(
-    val selectedPatches: Set<PatchType>   = emptySet(),
-    val patchState:      PatchState       = PatchState.Idle,
-    val installState:    InstallState     = InstallState.Idle,
-    val scanResults:     List<ScanResult> = emptyList(),
-    val isScanning:      Boolean          = false,
-    val aiDiagnosis:     AiDiagnosis      = AiDiagnosis(),
-    val lastOutputPath:  String           = ""
-)
+    // Kick patch unconditionally — PatchViewModel guards duplicate calls internally
+    LaunchedEffect(pkg) { vm.patch(pkg) }
 
-class PatchViewModel(app: Application) : AndroidViewModel(app) {
+    val logLines = when (val ps = state.patchState) {
+        is PatchState.Running -> ps.log
+        is PatchState.Success -> ps.log
+        is PatchState.Failure -> ps.log
+        else                  -> emptyList()
+    }
 
-    private val _state = MutableStateFlow(PatchUiState())
-    val state: StateFlow<PatchUiState> = _state.asStateFlow()
-    private val engine = ApkEngine(app)
+    val isRunning = state.patchState is PatchState.Running
+    val isSuccess = state.patchState is PatchState.Success
+    val isFailure = state.patchState is PatchState.Failure
 
-    private val notifMgr = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-    private val CHANNEL  = "azluk_patch"
-    private val NOTIF_ID = 0xA21
+    LaunchedEffect(logLines.size) {
+        if (logLines.isNotEmpty()) logState.animateScrollToItem(logLines.size - 1)
+    }
 
-    init { createChannel() }
-
-    // ── Scan ──────────────────────────────────────────────────────────────────
-
-    fun scan(pkg: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            _state.update { it.copy(isScanning = true, scanResults = emptyList()) }
-            val results = runCatching { engine.scan(pkg) }.getOrDefault(emptyList())
-            val detected = results.mapNotNull {
-                runCatching { PatchType.valueOf(it.patchType) }.getOrNull()
-            }.toSet()
-            _state.update {
-                it.copy(
-                    isScanning      = false,
-                    scanResults     = results,
-                    selectedPatches = if (detected.isNotEmpty()) detected
-                                     else setOf(PatchType.LICENSE_BYPASS, PatchType.REMOVE_ADS)
-                )
+    // Install result receiver
+    DisposableEffect(Unit) {
+        val filter   = IntentFilter("com.azluk.patcher.INSTALL_RESULT_LOCAL")
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context, i: Intent) {
+                val status = i.getIntExtra(PackageInstaller.EXTRA_STATUS, -999)
+                val msg    = i.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
+                if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                    val confirm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                        i.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
+                    else @Suppress("DEPRECATION") i.getParcelableExtra<Intent>(Intent.EXTRA_INTENT)
+                    confirm?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    confirm?.let { ctx.startActivity(it) }
+                } else vm.onInstallResult(status, msg)
             }
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+            ctx.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        else
+            ctx.registerReceiver(receiver, filter)
+        onDispose { ctx.unregisterReceiver(receiver) }
     }
 
-    fun togglePatch(type: PatchType) {
-        _state.update { s ->
-            val set = s.selectedPatches.toMutableSet()
-            if (type in set) set.remove(type) else set.add(type)
-            s.copy(selectedPatches = set)
-        }
-    }
-
-    // ── Patch — runs on IO dispatcher, emits log lines every 200ms ────────────
-    // Root cause of empty log: previous version used ForegroundService bridge
-    // that never connected because PatchLogScreen navigated before callback
-    // was registered. This version runs entirely in viewModelScope — simple,
-    // reliable, and the UI always sees every log line.
-
-    fun patch(pkg: String) {
-        val patches = _state.value.selectedPatches.toList()
-        if (patches.isEmpty()) return
-        doLaunchPatch { progress ->
-            engine.patch(pkg, patches, progress)
-        }
-    }
-
-    fun patchFile(file: File) {
-        val patches = _state.value.selectedPatches.toList()
-        if (patches.isEmpty()) return
-        doLaunchPatch { progress ->
-            engine.patchExternal(file, patches, progress)
-        }
-    }
-
-    private fun doLaunchPatch(block: (ApkEngine.Progress) -> File) {
-        // Already running — ignore duplicate calls
-        if (_state.value.patchState is PatchState.Running) return
-
-        val log   = mutableListOf<String>()
-        var dirty = false
-
-        viewModelScope.launch {
-            // Set running state immediately so PatchLogScreen sees it
-            _state.update { it.copy(patchState = PatchState.Running(emptyList())) }
-
-            // Post foreground notification so Android doesn't kill us
-            showNotification("Patching in background...")
-
-            // Ticker: flush log to UI every 200ms — avoids recompose storm
-            val ticker = launch(Dispatchers.Main) {
-                while (isActive) {
-                    delay(200)
-                    if (dirty) {
-                        _state.update { it.copy(patchState = PatchState.Running(log.toList())) }
-                        dirty = false
+    Scaffold(
+        containerColor = AzlukBg,
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text(
+                            when { isRunning -> "Patching..."; isSuccess -> "Patch Complete"; isFailure -> "Patch Failed"; else -> "Patching" },
+                            color = AzlukOnBg, fontWeight = FontWeight.SemiBold
+                        )
+                        Text(pkg, color = AzlukOnSurface, fontSize = 10.sp, maxLines = 1)
                     }
-                }
-            }
-
-            // Run the actual patch on IO at background priority
-            val result = withContext(Dispatchers.IO) {
-                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
-                runCatching {
-                    block(ApkEngine.Progress { msg ->
-                        synchronized(log) { log.add(msg); dirty = true }
-                    })
-                }
-            }
-
-            ticker.cancel()
-            // Final flush
-            _state.update { it.copy(patchState = PatchState.Running(log.toList())) }
-            delay(50)
-
-            result.fold(
-                onSuccess = { out ->
-                    showNotification("Patch complete: ${out.name}")
-                    _state.update {
-                        it.copy(
-                            patchState     = PatchState.Success(out.absolutePath, log.toList()),
-                            lastOutputPath = out.absolutePath
+                },
+                navigationIcon = {
+                    IconButton(
+                        onClick  = { if (!isRunning) { vm.resetPatch(); navController.popBackStack() } },
+                        enabled  = !isRunning
+                    ) {
+                        Icon(
+                            if (isRunning) Icons.Default.HourglassEmpty else Icons.Default.ArrowBack,
+                            null,
+                            tint = if (isRunning) AzlukOnSurface.copy(.3f) else AzlukOnSurface
                         )
                     }
                 },
-                onFailure = { e ->
-                    synchronized(log) { log.add("[ERROR] ${e.message}") }
-                    showNotification("Patch failed")
-                    _state.update {
-                        it.copy(patchState = PatchState.Failure(e.message ?: "Unknown error", log.toList()))
-                    }
-                }
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = AzlukSurface)
             )
         }
-    }
+    ) { padding ->
+        Column(
+            Modifier.fillMaxSize().padding(padding).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
 
-    // ── Notification ──────────────────────────────────────────────────────────
+            // ── Status banner ─────────────────────────────────────────────────
+            val bannerColor  = when { isSuccess -> AzlukSuccess.copy(.08f); isFailure -> AzlukError.copy(.08f); else -> AzlukBlue.copy(.08f) }
+            val bannerBorder = when { isSuccess -> AzlukSuccess.copy(.25f); isFailure -> AzlukError.copy(.25f); else -> AzlukBlue.copy(.25f) }
+            val bannerFg     = when { isSuccess -> AzlukSuccess; isFailure -> AzlukError; else -> AzlukBlue }
 
-    private fun showNotification(text: String) {
-        val notif = NotificationCompat.Builder(getApplication(), CHANNEL)
-            .setContentTitle("AzlukPatcher")
-            .setContentText(text)
-            .setSmallIcon(android.R.drawable.ic_popup_sync)
-            .setOngoing(text.contains("background"))
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .build()
-        notifMgr.notify(NOTIF_ID, notif)
-    }
+            Surface(color = bannerColor, shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, bannerBorder)) {
+                Row(Modifier.fillMaxWidth().padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    when {
+                        isRunning -> CircularProgressIndicator(Modifier.size(20.dp), color = AzlukBlue, strokeWidth = 2.dp)
+                        isSuccess -> Icon(Icons.Default.CheckCircle, null, tint = AzlukSuccess, modifier = Modifier.size(20.dp))
+                        isFailure -> Icon(Icons.Default.Error,       null, tint = AzlukError,   modifier = Modifier.size(20.dp))
+                        else      -> Icon(Icons.Default.HourglassEmpty, null, tint = AzlukBlue, modifier = Modifier.size(20.dp))
+                    }
+                    Column {
+                        Text(
+                            when { isSuccess -> "Patch complete"; isFailure -> "Patch failed"; else -> "Patching in background..." },
+                            color = bannerFg, fontWeight = FontWeight.SemiBold, fontSize = 13.sp
+                        )
+                        if (isRunning) Text("You can leave this screen — patch continues",
+                            color = AzlukOnSurface, fontSize = 11.sp)
+                    }
+                }
+            }
 
-    private fun createChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val ch = NotificationChannel(CHANNEL, "Patching", NotificationManager.IMPORTANCE_LOW)
-            ch.description = "AzlukPatcher background patching"
-            notifMgr.createNotificationChannel(ch)
-        }
-    }
+            // ── Live log ──────────────────────────────────────────────────────
+            Surface(color = AzlukSurface, shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.weight(1f).fillMaxWidth()) {
+                Column(Modifier.padding(12.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Default.Terminal, null, tint = AzlukOnSurface, modifier = Modifier.size(16.dp))
+                        Text("Log", color = AzlukOnSurface, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        if (logLines.isNotEmpty()) {
+                            Text("${logLines.size} lines", color = AzlukOnSurface.copy(.4f), fontSize = 10.sp)
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    if (logLines.isEmpty() && isRunning) {
+                        Row(verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            CircularProgressIndicator(Modifier.size(12.dp), color = AzlukBlue, strokeWidth = 1.5.dp)
+                            Text("Starting engine…", color = AzlukOnSurface, fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace)
+                        }
+                    } else {
+                        LazyColumn(state = logState) {
+                            items(logLines) { line ->
+                                Text(
+                                    line,
+                                    color = when {
+                                        line.contains("[SUCCESS]") || line.contains("Done") -> AzlukSuccess
+                                        line.contains("[ERROR]")  || line.startsWith("Error") -> AzlukError
+                                        line.contains("Signing")  || line.contains("DEX") -> AzlukCyan
+                                        else -> AzlukOnSurface
+                                    },
+                                    fontSize = 11.sp, fontFamily = FontFamily.Monospace, lineHeight = 15.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
 
-    // ── Install result + AI ───────────────────────────────────────────────────
+            // ── Install controls (after success) ──────────────────────────────
+            if (isSuccess) {
+                val outputPath = (state.patchState as PatchState.Success).outputPath
 
-    fun onInstallResult(status: Int, message: String?) {
-        val ist = when (status) {
-            PackageInstaller.STATUS_SUCCESS ->
-                InstallState.Success
-            PackageInstaller.STATUS_FAILURE_INVALID ->
-                InstallState.Failure("INSTALL_FAILURE_INVALID",
-                    "Invalid APK — signature or structure is corrupt.",
-                    "The signing block may be malformed.", true)
-            PackageInstaller.STATUS_FAILURE_CONFLICT ->
-                InstallState.Failure("INSTALL_FAILURE_CONFLICT",
-                    "Version conflict — uninstall the original first.",
-                    message ?: "A different version is already installed.", false)
-            PackageInstaller.STATUS_FAILURE_BLOCKED ->
-                InstallState.Failure("INSTALL_FAILURE_BLOCKED",
-                    "Installation blocked.",
-                    "Enable 'Install unknown apps' for AzlukPatcher in Settings.", false)
-            PackageInstaller.STATUS_FAILURE_STORAGE ->
-                InstallState.Failure("INSTALL_FAILURE_STORAGE",
-                    "Not enough storage space.", "Free up space and try again.", false)
-            else ->
-                InstallState.Failure("INSTALL_FAILURE_$status",
-                    message ?: "Unknown installer error (code $status)",
-                    "Unexpected installer error.", true)
-        }
-        _state.update { it.copy(installState = ist) }
-        if (ist is InstallState.Failure) diagnoseWithAi(ist, _state.value.lastOutputPath)
-    }
-
-    // ── AI diagnosis — silent, appears as plain suggestion text ──────────────
-    // Verified working: uses TokenRouter OpenAI-compatible endpoint.
-    // If TOKENROUTER_API_KEY is empty (no local.properties), it skips
-    // gracefully without crashing — shows nothing to the user.
-
-    fun diagnoseWithAi(failure: InstallState.Failure, apkPath: String) {
-        val apiKey = BuildConfig.TOKENROUTER_API_KEY
-        if (apiKey.isBlank()) return   // No key configured — skip silently
-
-        _state.update { it.copy(aiDiagnosis = AiDiagnosis(loading = true)) }
-
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val apkInfo = runCatching {
-                    val f = File(apkPath)
-                    "APK: ${f.name}, ${f.length() / 1024}KB, exists=${f.exists()}"
-                }.getOrDefault("APK info unavailable")
-
-                val prompt = """
-Android APK install failed. Diagnose in 2 sentences and give one specific fix.
-Error: ${failure.code} — ${failure.message}
-$apkInfo
-Direct answer, no preamble.
-""".trimIndent()
-
-                val body = org.json.JSONObject().apply {
-                    put("model",      BuildConfig.TOKENROUTER_MODEL)
-                    put("max_tokens", 250)
-                    put("messages",   org.json.JSONArray().apply {
-                        put(org.json.JSONObject().apply {
-                            put("role",    "system")
-                            put("content", "You are an Android APK signing expert. Be concise.")
-                        })
-                        put(org.json.JSONObject().apply {
-                            put("role",    "user")
-                            put("content", prompt)
-                        })
-                    })
+                Surface(color = AzlukSurface, shape = RoundedCornerShape(12.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Icon(Icons.Default.InsertDriveFile, null, tint = AzlukBlue, modifier = Modifier.size(16.dp))
+                        Text(File(outputPath).name, color = AzlukOnSurface, fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f), maxLines = 1)
+                    }
                 }
 
-                val conn = (java.net.URL("${BuildConfig.TOKENROUTER_BASE_URL}/chat/completions")
-                    .openConnection() as java.net.HttpURLConnection).apply {
-                    requestMethod = "POST"
-                    setRequestProperty("Content-Type",  "application/json")
-                    setRequestProperty("Authorization", "Bearer $apiKey")
-                    doOutput        = true
-                    connectTimeout  = 10_000
-                    readTimeout     = 20_000
-                    outputStream.use { it.write(body.toString().toByteArray()) }
+                Button(onClick = { doInstall(ctx, File(outputPath), vm) },
+                    modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AzlukBlue)) {
+                    Icon(Icons.Default.InstallMobile, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Install", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
 
-                val code = conn.responseCode
-                val resp = if (code in 200..299)
-                    conn.inputStream.bufferedReader().readText()
-                else
-                    throw Exception("HTTP $code: ${conn.errorStream?.bufferedReader()?.readText()}")
+                OutlinedButton(onClick = { systemInstall(ctx, File(outputPath)) },
+                    modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, AzlukSurfaceVar)) {
+                    Icon(Icons.Default.OpenInNew, null, Modifier.size(16.dp), tint = AzlukOnSurface)
+                    Spacer(Modifier.width(8.dp))
+                    Text("System Installer", color = AzlukOnSurface, fontSize = 13.sp)
+                }
 
-                val text = org.json.JSONObject(resp)
-                    .getJSONArray("choices").getJSONObject(0)
-                    .getJSONObject("message").getString("content").trim()
+                // Install result
+                when (val ist = state.installState) {
+                    is InstallState.Success -> {
+                        Surface(color = AzlukSuccess.copy(.07f), shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, AzlukSuccess.copy(.25f))) {
+                            Row(Modifier.fillMaxWidth().padding(14.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.CheckCircle, null, tint = AzlukSuccess, modifier = Modifier.size(20.dp))
+                                Text("Installed successfully!", color = AzlukSuccess, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    is InstallState.Failure -> {
+                        Surface(color = AzlukError.copy(.07f), shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, AzlukError.copy(.25f))) {
+                            Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.Error, null, tint = AzlukError, modifier = Modifier.size(16.dp))
+                                    Text(ist.code, color = AzlukError, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                                Text(ist.message,     color = AzlukOnBg,      fontSize = 12.sp)
+                                Text(ist.description, color = AzlukOnSurface, fontSize = 11.sp)
+                                // AI suggestion — plain text, no label
+                                val ai = state.aiDiagnosis
+                                if (ai.loading) {
+                                    Row(verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        CircularProgressIndicator(Modifier.size(12.dp), color = AzlukBlue, strokeWidth = 1.5.dp)
+                                        Text("Analyzing…", color = AzlukOnSurface, fontSize = 11.sp)
+                                    }
+                                } else if (ai.suggestion.isNotEmpty()) {
+                                    HorizontalDivider(color = AzlukSurfaceVar, thickness = .5.dp)
+                                    Text(ai.suggestion, color = AzlukOnBg, fontSize = 12.sp, lineHeight = 18.sp)
+                                }
+                                if (ist.canRetry) {
+                                    Button(onClick = { doInstall(ctx, File(outputPath), vm) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = ButtonDefaults.buttonColors(containerColor = AzlukBlue),
+                                        shape = RoundedCornerShape(10.dp)) {
+                                        Icon(Icons.Default.Refresh, null, Modifier.size(16.dp))
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Retry Install")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    else -> {}
+                }
+            }
 
-                _state.update { it.copy(aiDiagnosis = AiDiagnosis(loading = false, suggestion = text)) }
-
-            } catch (e: Exception) {
-                // Silent failure — don't bother the user
-                _state.update { it.copy(aiDiagnosis = AiDiagnosis(loading = false)) }
-                android.util.Log.w("AzlukAI", "AI diagnosis failed: ${e.message}")
+            if (isFailure) {
+                Button(onClick = { vm.resetPatch(); navController.popBackStack() },
+                    modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = AzlukBlue)) {
+                    Text("Try Again")
+                }
             }
         }
     }
+}
 
-    fun dismissAi()  { _state.update { it.copy(aiDiagnosis = AiDiagnosis()) } }
-    fun resetPatch() { _state.update { it.copy(patchState = PatchState.Idle, installState = InstallState.Idle, aiDiagnosis = AiDiagnosis()) } }
+// ── Install helpers ───────────────────────────────────────────────────────────
+
+fun doInstall(ctx: Context, file: File, vm: PatchViewModel) {
+    if (!file.exists()) { Toast.makeText(ctx, "APK not found", Toast.LENGTH_SHORT).show(); return }
+    try {
+        val pi        = ctx.packageManager.packageInstaller
+        val params    = PackageInstaller.SessionParams(PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+        val sessionId = pi.createSession(params)
+        val session   = pi.openSession(sessionId)
+        FileInputStream(file).use { fis ->
+            session.openWrite("base.apk", 0, file.length()).use { os ->
+                fis.copyTo(os, 65536); session.fsync(os)
+            }
+        }
+        val intent = Intent("com.azluk.patcher.INSTALL_RESULT").apply { setPackage(ctx.packageName) }
+        val flags  = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+        else PendingIntent.FLAG_UPDATE_CURRENT
+        session.commit(PendingIntent.getBroadcast(ctx, sessionId, intent, flags).intentSender)
+        session.close()
+    } catch (e: Exception) {
+        Toast.makeText(ctx, "Install error: ${e.message}", Toast.LENGTH_LONG).show()
+    }
+}
+
+fun systemInstall(ctx: Context, file: File) {
+    if (!file.exists()) { Toast.makeText(ctx, "APK not found", Toast.LENGTH_SHORT).show(); return }
+    try {
+        val uri = androidx.core.content.FileProvider.getUriForFile(ctx, "${ctx.packageName}.provider", file)
+        ctx.startActivity(Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        })
+    } catch (e: Exception) {
+        Toast.makeText(ctx, "System install error: ${e.message}", Toast.LENGTH_LONG).show()
+    }
 }
