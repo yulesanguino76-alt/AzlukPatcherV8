@@ -32,95 +32,72 @@ import com.azluk.patcher.viewmodel.SystemCheckViewModel
 
 class MainActivity : ComponentActivity() {
 
-    private val permissionReady = mutableStateOf(false)
-    private val systemCheckVm: SystemCheckViewModel by viewModels()
+    private val permReady = mutableStateOf(false)
+    private val sysVm: SystemCheckViewModel by viewModels()
 
     private val permLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissionReady.value = hasPermission() }
+    ) { permReady.value = hasPermission() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // ── FULL SCREEN — draw behind status + nav bars ───────────────────────
         WindowCompat.setDecorFitsSystemWindows(window, false)
-
-        permissionReady.value = hasPermission()
-        systemCheckVm.run()
-
+        permReady.value = hasPermission()
+        sysVm.run()
         setContent {
             AzlukTheme {
-                val ready by permissionReady
-                if (ready) {
-                    AzlukApp(systemCheckVm)
-                } else {
-                    PermissionScreen { requestPermission() }
-                }
+                val ready by permReady
+                if (ready) AzlukApp(sysVm) else PermissionScreen { requestPerm() }
             }
         }
-
-        if (!hasPermission()) requestPermission()
+        if (!hasPermission()) requestPerm()
     }
 
-    override fun onResume() {
-        super.onResume()
-        permissionReady.value = hasPermission()
-    }
+    override fun onResume() { super.onResume(); permReady.value = hasPermission() }
 
     private fun hasPermission() =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
             Environment.isExternalStorageManager()
-        else checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) ==
-             PackageManager.PERMISSION_GRANTED
+        else checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
 
-    private fun requestPermission() {
+    private fun requestPerm() {
         if (hasPermission()) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            runCatching {
-                startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                    Uri.parse("package:$packageName")))
-            }.onFailure {
-                runCatching {
-                    startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
-                }
-            }
+            runCatching { startActivity(Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.parse("package:$packageName"))) }
+                .onFailure { runCatching { startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)) } }
         } else {
-            permLauncher.launch(arrayOf(
-                Manifest.permission.READ_EXTERNAL_STORAGE,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE
-            ))
+            permLauncher.launch(arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE))
         }
     }
 }
 
 @Composable
-private fun AzlukApp(systemCheckVm: SystemCheckViewModel) {
-    val profile by systemCheckVm.profile.collectAsStateWithLifecycle()
-    val navController = rememberNavController()
+private fun AzlukApp(sysVm: SystemCheckViewModel) {
+    val profile by sysVm.profile.collectAsStateWithLifecycle()
+    val nav = rememberNavController()
     var splashDone by remember { mutableStateOf(false) }
 
     if (!splashDone) {
         SplashScreen(profile = profile, onComplete = { splashDone = true })
     } else {
-        NavHost(
-            navController    = navController,
-            startDestination = "home",
-            // Fill entire screen including behind system bars
-            modifier         = Modifier.fillMaxSize()
-        ) {
-            composable("home")    { HomeScreen(navController) }
-            composable("patched") { PatchedFilesScreen(navController) }
-            composable("tools")   { ToolsScreen(navController) }
-            composable(
-                "detail/{pkg}",
-                arguments = listOf(navArgument("pkg") { type = NavType.StringType })
-            ) { HomeScreen(navController) }   // back-compat
+        NavHost(nav, startDestination = "home", modifier = Modifier.fillMaxSize()) {
+            composable("home")    { HomeScreen(nav) }
+            composable("patched") { PatchedFilesScreen(nav) }
+            composable("tools")   { ToolsScreen(nav) }
             composable(
                 "patch/{pkg}",
                 arguments = listOf(navArgument("pkg") { type = NavType.StringType })
             ) { back ->
                 val pkg = back.arguments?.getString("pkg") ?: return@composable
-                PatchScreen(pkg = pkg, navController = navController)
+                PatchScreen(pkg = pkg, navController = nav)
+            }
+            // NEW: separate log+install screen navigated to after user taps Patch
+            composable(
+                "patchlog/{pkg}",
+                arguments = listOf(navArgument("pkg") { type = NavType.StringType })
+            ) { back ->
+                val pkg = back.arguments?.getString("pkg") ?: return@composable
+                PatchLogScreen(pkg = pkg, navController = nav)
             }
         }
     }
@@ -129,12 +106,11 @@ private fun AzlukApp(systemCheckVm: SystemCheckViewModel) {
 @Composable
 private fun PermissionScreen(onRequest: () -> Unit) {
     Column(
-        Modifier.fillMaxSize().padding(32.dp).systemBarsPadding(),
+        Modifier.fillMaxSize().systemBarsPadding().padding(32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text("Storage Access Required",
-            style = MaterialTheme.typography.headlineSmall)
+        Text("Storage Access Required", style = MaterialTheme.typography.headlineSmall)
         Spacer(Modifier.height(12.dp))
         Text("AzlukPatcher needs full storage access to read and patch APK files.")
         Spacer(Modifier.height(24.dp))
@@ -143,15 +119,12 @@ private fun PermissionScreen(onRequest: () -> Unit) {
 }
 
 // ── InstallReceiver — all 3 bugs fixed ───────────────────────────────────────
-// Bug 1: missing FLAG_UPDATE_CURRENT  → stale PI on retry
-// Bug 2: missing setPackage()         → implicit broadcast dropped on API 26+
-// Bug 3: forwarded EXTRA_INTENT correctly for PENDING_USER_ACTION
 class InstallReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, -999)
         val msg    = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
         ctx.sendBroadcast(Intent("com.azluk.patcher.INSTALL_RESULT_LOCAL").apply {
-            setPackage(ctx.packageName)          // FIX 2
+            setPackage(ctx.packageName)
             putExtra(PackageInstaller.EXTRA_STATUS, status)
             putExtra(PackageInstaller.EXTRA_STATUS_MESSAGE, msg)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
