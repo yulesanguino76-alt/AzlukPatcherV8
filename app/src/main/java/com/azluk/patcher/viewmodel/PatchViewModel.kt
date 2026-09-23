@@ -1,19 +1,22 @@
 package com.azluk.patcher.viewmodel
 
 import android.app.Application
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.os.Build
+import androidx.core.app.NotificationCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.azluk.patcher.BuildConfig
 import com.azluk.patcher.core.*
 import com.azluk.patcher.engine.ApkEngine
-import com.azluk.patcher.engine.PatchForegroundService
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import java.io.File
+
+// ── Data classes — declared ONCE here, imported everywhere else ───────────────
 
 data class AiDiagnosis(
     val loading:    Boolean = false,
@@ -28,8 +31,7 @@ data class PatchUiState(
     val scanResults:     List<ScanResult> = emptyList(),
     val isScanning:      Boolean          = false,
     val aiDiagnosis:     AiDiagnosis      = AiDiagnosis(),
-    val lastOutputPath:  String           = "",
-    val isInBackground:  Boolean          = false  // true when foreground service is running
+    val lastOutputPath:  String           = ""
 )
 
 class PatchViewModel(app: Application) : AndroidViewModel(app) {
@@ -37,6 +39,12 @@ class PatchViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow(PatchUiState())
     val state: StateFlow<PatchUiState> = _state.asStateFlow()
     private val engine = ApkEngine(app)
+
+    private val notifMgr = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    private val CHANNEL  = "azluk_patch"
+    private val NOTIF_ID = 0xA21
+
+    init { createChannel() }
 
     // ── Scan ──────────────────────────────────────────────────────────────────
 
@@ -66,98 +74,77 @@ class PatchViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    // ── Patch via ForegroundService ───────────────────────────────────────────
-    // Registers itself as the KotlinBridge callback, then starts the Java
-    // PatchForegroundService. The service calls back into launchPatchWork().
-    // This is what enables true background operation with a persistent notification.
+    // ── Patch ─────────────────────────────────────────────────────────────────
 
     fun patch(pkg: String) {
         val patches = _state.value.selectedPatches.toList()
         if (patches.isEmpty()) return
-        startForegroundPatch(pkg, null, patches)
+        doLaunchPatch { progress -> engine.patch(pkg, patches, progress) }
     }
 
     fun patchFile(file: File) {
         val patches = _state.value.selectedPatches.toList()
         if (patches.isEmpty()) return
-        startForegroundPatch(null, file.absolutePath, patches)
+        doLaunchPatch { progress -> engine.patchExternal(file, patches, progress) }
     }
 
-    private fun startForegroundPatch(pkg: String?, apkPath: String?, patches: List<PatchType>) {
-        val ctx = getApplication<Application>()
-        val log = mutableListOf<String>()
+    private fun doLaunchPatch(block: (ApkEngine.Progress) -> File) {
+        if (_state.value.patchState is PatchState.Running) return
+
+        val log   = mutableListOf<String>()
         var dirty = false
 
-        // Register this ViewModel as the callback the Java service will call
-        PatchForegroundService.KotlinBridge.INSTANCE.callback =
-            PatchForegroundService.PatchCallback { _, _, onProgress, onDone ->
+        viewModelScope.launch {
+            _state.update { it.copy(patchState = PatchState.Running(emptyList())) }
+            showNotif("Patching in background...")
 
-                // Ticker — flush log every 300ms to avoid recompose storm
-                val ticker = viewModelScope.launch(Dispatchers.Main) {
-                    while (isActive) {
-                        delay(300)
-                        if (dirty) {
-                            _state.update { it.copy(patchState = PatchState.Running(log.toList())) }
-                            dirty = false
-                        }
+            // Ticker: flush log every 200ms — avoids recompose storm
+            val ticker = launch(Dispatchers.Main) {
+                while (isActive) {
+                    delay(200)
+                    if (dirty) {
+                        _state.update { it.copy(patchState = PatchState.Running(log.toList())) }
+                        dirty = false
                     }
-                }
-
-                viewModelScope.launch(Dispatchers.IO) {
-                    android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
-
-                    val result = runCatching {
-                        val progress = ApkEngine.Progress { msg ->
-                            synchronized(log) { log.add(msg); dirty = true }
-                            onProgress?.log(msg)
-                        }
-                        if (pkg != null) engine.patch(pkg, patches, progress)
-                        else engine.patchExternal(File(apkPath!!), patches, progress)
-                    }
-
-                    ticker.cancel()
-
-                    result.fold(
-                        onSuccess = { out ->
-                            _state.update {
-                                it.copy(
-                                    patchState      = PatchState.Success(out.absolutePath, log.toList()),
-                                    lastOutputPath  = out.absolutePath,
-                                    isInBackground  = false
-                                )
-                            }
-                            onDone?.done(true, out.absolutePath, null)
-                        },
-                        onFailure = { e ->
-                            synchronized(log) { log.add("Error: ${e.message}") }
-                            _state.update {
-                                it.copy(
-                                    patchState     = PatchState.Failure(e.message ?: "Unknown", log.toList()),
-                                    isInBackground = false
-                                )
-                            }
-                            onDone?.done(false, null, e.message)
-                        }
-                    )
                 }
             }
 
-        // Update UI to show background running state
-        _state.update { it.copy(patchState = PatchState.Running(emptyList()), isInBackground = true) }
+            val result = withContext(Dispatchers.IO) {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+                runCatching {
+                    block(ApkEngine.Progress { msg ->
+                        synchronized(log) { log.add(msg); dirty = true }
+                    })
+                }
+            }
 
-        // Start the foreground service
-        val serviceIntent = Intent(ctx, PatchForegroundService::class.java).apply {
-            putExtra("pkg", pkg)
-            putExtra("apk_path", apkPath)
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            ctx.startForegroundService(serviceIntent)
-        } else {
-            ctx.startService(serviceIntent)
+            ticker.cancel()
+            // Final flush — make sure last lines are visible
+            _state.update { it.copy(patchState = PatchState.Running(log.toList())) }
+            delay(50)
+
+            result.fold(
+                onSuccess = { out ->
+                    showNotif("Patch complete: ${out.name}")
+                    _state.update {
+                        it.copy(
+                            patchState     = PatchState.Success(out.absolutePath, log.toList()),
+                            lastOutputPath = out.absolutePath
+                        )
+                    }
+                },
+                onFailure = { e ->
+                    synchronized(log) { log.add("[ERROR] ${e.message}") }
+                    showNotif("Patch failed")
+                    _state.update {
+                        it.copy(patchState = PatchState.Failure(e.message ?: "Unknown error", log.toList()))
+                    }
+                }
+            )
         }
     }
 
-    // ── Install result + silent AI diagnosis ──────────────────────────────────
+    // ── Install result + silent AI ────────────────────────────────────────────
 
     fun onInstallResult(status: Int, message: String?) {
         val ist = when (status) {
@@ -169,7 +156,7 @@ class PatchViewModel(app: Application) : AndroidViewModel(app) {
                     "The signing block may be malformed.", true)
             PackageInstaller.STATUS_FAILURE_CONFLICT ->
                 InstallState.Failure("INSTALL_FAILURE_CONFLICT",
-                    "Version conflict — uninstall the original app first.",
+                    "Version conflict — uninstall the original first.",
                     message ?: "A different version is already installed.", false)
             PackageInstaller.STATUS_FAILURE_BLOCKED ->
                 InstallState.Failure("INSTALL_FAILURE_BLOCKED",
@@ -177,8 +164,7 @@ class PatchViewModel(app: Application) : AndroidViewModel(app) {
                     "Enable 'Install unknown apps' for AzlukPatcher in Settings.", false)
             PackageInstaller.STATUS_FAILURE_STORAGE ->
                 InstallState.Failure("INSTALL_FAILURE_STORAGE",
-                    "Not enough storage space.",
-                    "Free up space and try again.", false)
+                    "Not enough storage space.", "Free up space and try again.", false)
             else ->
                 InstallState.Failure("INSTALL_FAILURE_$status",
                     message ?: "Unknown installer error (code $status)",
@@ -189,49 +175,72 @@ class PatchViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun diagnoseWithAi(failure: InstallState.Failure, apkPath: String) {
+        val apiKey = runCatching { BuildConfig.TOKENROUTER_API_KEY }.getOrDefault("")
+        if (apiKey.isBlank()) return
+
         _state.update { it.copy(aiDiagnosis = AiDiagnosis(loading = true)) }
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val apkInfo = runCatching {
-                    val f = File(apkPath)
-                    "APK: ${f.name}, ${f.length()/1024}KB"
+                    val f = File(apkPath); "APK: ${f.name}, ${f.length() / 1024}KB"
                 }.getOrDefault("")
 
-                val prompt = """
-Android APK install failed. Give a 2-sentence diagnosis and one specific fix.
-Error code: ${failure.code}
-Error message: ${failure.message}
-$apkInfo
-No preamble. Direct answer only.
-""".trimIndent()
+                val prompt = "Android APK install failed.\nError: ${failure.code} — ${failure.message}\n$apkInfo\nDiagnose in 2 sentences and give one fix. No preamble."
 
                 val body = org.json.JSONObject().apply {
                     put("model",      BuildConfig.TOKENROUTER_MODEL)
                     put("max_tokens", 250)
                     put("messages",   org.json.JSONArray().apply {
                         put(org.json.JSONObject().apply { put("role","system"); put("content","Android APK signing expert. Be concise.") })
-                        put(org.json.JSONObject().apply { put("role","user"); put("content", prompt) })
+                        put(org.json.JSONObject().apply { put("role","user");   put("content", prompt) })
                     })
                 }
-                val conn = java.net.URL("${BuildConfig.TOKENROUTER_BASE_URL}/chat/completions")
-                    .openConnection() as java.net.HttpURLConnection
-                conn.apply {
+                val conn = (java.net.URL("${BuildConfig.TOKENROUTER_BASE_URL}/chat/completions")
+                    .openConnection() as java.net.HttpURLConnection).apply {
                     requestMethod = "POST"
                     setRequestProperty("Content-Type",  "application/json")
-                    setRequestProperty("Authorization", "Bearer ${BuildConfig.TOKENROUTER_API_KEY}")
-                    doOutput = true; connectTimeout = 8000; readTimeout = 15000
+                    setRequestProperty("Authorization", "Bearer $apiKey")
+                    doOutput = true; connectTimeout = 10_000; readTimeout = 20_000
+                    outputStream.use { it.write(body.toString().toByteArray()) }
                 }
-                conn.outputStream.use { it.write(body.toString().toByteArray()) }
+                val code = conn.responseCode
+                if (code !in 200..299) throw Exception("HTTP $code")
                 val text = org.json.JSONObject(conn.inputStream.bufferedReader().readText())
                     .getJSONArray("choices").getJSONObject(0)
                     .getJSONObject("message").getString("content").trim()
                 _state.update { it.copy(aiDiagnosis = AiDiagnosis(loading = false, suggestion = text)) }
             } catch (e: Exception) {
+                android.util.Log.w("AzlukAI", "Diagnosis failed: ${e.message}")
                 _state.update { it.copy(aiDiagnosis = AiDiagnosis(loading = false)) }
             }
         }
     }
 
-    fun dismissAi()    { _state.update { it.copy(aiDiagnosis = AiDiagnosis()) } }
-    fun resetPatch()   { _state.update { it.copy(patchState = PatchState.Idle, installState = InstallState.Idle, aiDiagnosis = AiDiagnosis()) } }
+    fun dismissAi()  { _state.update { it.copy(aiDiagnosis = AiDiagnosis()) } }
+    fun resetPatch() {
+        _state.update {
+            it.copy(patchState = PatchState.Idle, installState = InstallState.Idle, aiDiagnosis = AiDiagnosis())
+        }
+    }
+
+    // ── Notification ──────────────────────────────────────────────────────────
+
+    private fun showNotif(text: String) {
+        val notif = NotificationCompat.Builder(getApplication(), CHANNEL)
+            .setContentTitle("AzlukPatcher")
+            .setContentText(text)
+            .setSmallIcon(android.R.drawable.ic_popup_sync)
+            .setOngoing(text.contains("background"))
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+        runCatching { notifMgr.notify(NOTIF_ID, notif) }
+    }
+
+    private fun createChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val ch = NotificationChannel(CHANNEL, "Patching", NotificationManager.IMPORTANCE_LOW)
+            ch.description = "AzlukPatcher background patching"
+            notifMgr.createNotificationChannel(ch)
+        }
+    }
 }
