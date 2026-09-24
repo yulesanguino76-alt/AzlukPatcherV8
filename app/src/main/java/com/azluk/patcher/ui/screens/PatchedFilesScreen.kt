@@ -245,7 +245,7 @@ fun PatchedFilesScreen(
                                             Modifier.fillMaxWidth().padding(10.dp),
                                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
-                                            Icon(Icons.Default.LightbulbOutline, null,
+                                            Icon(Icons.Default.Lightbulb, null,
                                                 tint = AzlukBlue, modifier = Modifier.size(14.dp))
                                             Text(ai.suggestion, color = AzlukOnBg,
                                                 fontSize = 11.sp, lineHeight = 16.sp)
