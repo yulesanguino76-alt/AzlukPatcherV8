@@ -91,7 +91,7 @@ private fun AzlukApp(sysVm: SystemCheckViewModel) {
                 val pkg = back.arguments?.getString("pkg") ?: return@composable
                 PatchScreen(pkg = pkg, navController = nav)
             }
-            // NEW: separate log+install screen navigated to after user taps Patch
+            // Separate log + install screen — navigated to after choosing patch options
             composable(
                 "patchlog/{pkg}",
                 arguments = listOf(navArgument("pkg") { type = NavType.StringType })
