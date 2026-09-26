@@ -412,7 +412,7 @@ private fun FileCard(
             AnimatedVisibility(expanded) {
                 Row(
                     Modifier
-                        .fillMaxWidth()
+                    .fillMaxWidth()
                         .padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
